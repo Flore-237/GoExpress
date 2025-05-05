@@ -8,6 +8,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import EventScreen from './screens/Events';
 import MoreScreen from './screens/More';
 import Feather from 'react-native-vector-icons/Feather';
+import SearchResultsScreen from './screens/SearchResults';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -63,6 +64,8 @@ const App = () => {
         <Stack.Screen name="Main" component={MyTabs} options={{ headerShown: false }} />
         <Stack.Screen name="event" component={EventScreen} options={{ headerShown: false }}/>
         <Stack.Screen name="more" component={MoreScreen} options={{ headerShown: false }}/>
+        <Stack.Screen name="SearchResults" component={SearchResultsScreen} options={{ headerShown: false }}/>
+        
       </Stack.Navigator>
     </NavigationContainer>
   );
