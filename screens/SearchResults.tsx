@@ -1,408 +1,324 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, FlatList, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
-import { Card, IconButton, Divider } from 'react-native-paper';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  FlatList,
+  SafeAreaView,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
-import { format } from 'date-fns';
-import fr from 'date-fns/locale/fr';
+import Icon from 'react-native-vector-icons/Feather';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import moment from 'moment';
 
-const SearchResultsScreen = ({ route, navigation }) => {
+const SearchResultsScreen = () => {
+  const navigation = useNavigation();
+  const route = useRoute();
   const { departure, destination, date, time } = route.params;
-  const [voyages, setVoyages] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
-  // Icônes pour les différents services
-  const serviceIcons = {
-    'Wi-Fi': 'wifi',
-    'Climatisation': 'air-conditioner',
-    'TV': 'television',
-    'Repas': 'food',
-    'Boissons': 'cup',
-  };
+  const [loading, setLoading] = useState(true);
+  const [voyages, setVoyages] = useState([]);
+  const [agencies, setAgencies] = useState({});
 
   useEffect(() => {
-    const fetchVoyages = async () => {
-      try {
-        setLoading(true);
-        
-        // Convertir date string (dd/MM/yyyy) en Date pour la comparaison
-        const [day, month, year] = date.split('/');
-        const searchDate = `${year}-${month}-${day}`;
-        
-        // Récupérer les voyages correspondant au départ et à la destination
-        const voyagesSnapshot = await firestore()
-          .collection('voyages')
-          .where('departure', '==', departure)
-          .where('destination', '==', destination)
-          .where('dateDepart', '==', searchDate)
-          .get();
-        
-        if (voyagesSnapshot.empty) {
-          setVoyages([]);
-          setLoading(false);
-          return;
-        }
-        
-        // Récupérer les infos des agences pour chaque voyage
-        const voyagesData = [];
-        
-        for (const doc of voyagesSnapshot.docs) {
-          const voyageData = doc.data();
-          
-          // Récupérer les infos de l'agence
-          const agencyDoc = await firestore()
-            .collection('agencies')
-            .doc(voyageData.agencyId)
-            .get();
-            
-          if (agencyDoc.exists) {
-            const agencyData = agencyDoc.data();
-            
-            voyagesData.push({
-              id: doc.id,
-              ...voyageData,
-              agencyName: agencyData.name,
-              services: agencyData.services || [],
-              logoUrl: agencyData.logoUrl,
-            });
-          }
-        }
-        
-        setVoyages(voyagesData);
-        setLoading(false);
-      } catch (err) {
-        console.error("Erreur lors de la récupération des voyages:", err);
-        setError("Une erreur est survenue lors du chargement des voyages.");
-        setLoading(false);
-      }
-    };
+    fetchResults();
+  }, []);
 
-    fetchVoyages();
-  }, [departure, destination, date]);
+  const fetchResults = async () => {
+    try {
+      setLoading(true);
+      console.log(`Recherche: Départ=${departure}, Destination=${destination}, Date=${date}`);
+      
+      const voyagesRef = firestore().collection('voyages');
+      
+      // Utiliser UNIQUEMENT les conditions départ et destination
+      let query = voyagesRef
+        .where('departure', '==', departure)
+        .where('destination', '==', destination);
+      
+      const voyagesSnapshot = await query.get();
+      console.log(`Nombre de résultats trouvés: ${voyagesSnapshot.size}`);
 
+      // Récupération des agences
+      const agenciesSnapshot = await firestore().collection('agencies').get();
+      const agenciesData = {};
+
+      agenciesSnapshot.docs.forEach(doc => {
+        agenciesData[doc.id] = doc.data();
+      });
+      setAgencies(agenciesData);
+
+      // Récupérer tous les voyages correspondant au trajet demandé
+      // sans filtrer par date (on affiche tous les résultats)
+      const voyagesData = [];
+      voyagesSnapshot.docs.forEach(doc => {
+        const voyageData = doc.data();
+        console.log(`Voyage trouvé: ${JSON.stringify(voyageData)}`);
+        
+        // Ajouter tous les voyages qui correspondent au trajet
+        voyagesData.push({ id: doc.id, ...voyageData });
+      });
+
+      console.log(`Voyages trouvés: ${voyagesData.length}`);
+      setVoyages(voyagesData);
+      setLoading(false);
+    } catch (error) {
+      console.error('Erreur de recherche:', error);
+      Alert.alert(
+        'Erreur',
+        'Une erreur est survenue lors de la recherche: ' + error.message
+      );
+      setLoading(false);
+    }
+  };
+
+  const handleGoBack = () => navigation.goBack();
+
+  const formatDate = (dateString) => {
+    const date = moment(dateString, 'YYYY-MM-DD');
+    return date.isValid()
+      ? `${date.format('MMM')} ${date.format('DD')} ${date.format('YYYY')} | ${date.format('dddd')}`
+      : dateString;
+  };
+
+  // Cette fonction redirige l'utilisateur vers la page de sélection de sièges
   const handleVoyageSelect = (voyage) => {
-    navigation.navigate('VoyageDetails', { voyageId: voyage.id });
+    // Assurez-vous que les détails de l'agence sont récupérés correctement
+    const agencyDetails = agencies[voyage.agencyId] || {};
+    
+    console.log('Navigation vers SeatSelectionScreen avec:', { voyage, agencyDetails });
+    
+    // Navigation vers la page de sélection de sièges avec les données du voyage et de l'agence
+    // CORRECTION: Le nom doit être "SeatSelectionScreen" et non "SeatSelection"
+    try {
+      navigation.navigate('SeatSelectionScreen', {
+        voyage,
+        agencyDetails,
+        departure,
+        destination,
+        date
+      });
+    } catch (error) {
+      console.error('Erreur de navigation:', error);
+      Alert.alert(
+        'Erreur',
+        'Impossible d\'accéder à l\'écran de sélection de sièges: ' + error.message
+      );
+    }
   };
 
-  const renderServiceIcons = (services) => {
+  // Rendu d'un élément de voyage avec redirection vers la sélection de sièges au clic
+  const renderVoyageItem = ({ item }) => {
+    const agency = agencies[item.agencyId] || {};
+  
+    const onPressVoyage = () => {
+      console.log('Item pressé:', item.id);
+      handleVoyageSelect(item);
+    };
+  
     return (
-      <View style={styles.serviceIconsContainer}>
-        {services.slice(0, 3).map((service, index) => (
-          <MaterialCommunityIcons 
-            key={index} 
-            name={serviceIcons[service] || 'check-circle'} 
-            size={20} 
-            color="#4169E1" 
-            style={styles.serviceIcon}
-          />
-        ))}
-      </View>
-    );
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4169E1" />
-        <Text style={styles.loadingText}>Recherche des voyages...</Text>
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity 
-          style={styles.retryButton}
-          onPress={() => navigation.goBack()}>
-          <Text style={styles.retryButtonText}>Retour</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.routeContainer}>
-          <Image 
-            source={require('../assets/images/generaleLogo.jpg')} 
-            style={styles.busIcon} 
-          />
-          <View style={styles.routeInfo}>
-            <Text style={styles.routeText}>{departure}</Text>
-            <IconButton 
-              icon="swap-horizontal" 
-              color="#FFF" 
-              size={24} 
-              style={styles.swapIcon}
-            />
-            <Text style={styles.routeText}>{destination}</Text>
+      <TouchableOpacity 
+        style={styles.voyageCard} 
+        onPress={onPressVoyage}
+        activeOpacity={0.6}
+      >
+        <Image
+          source={{ uri: agency.logoUrl }}
+          defaultSource={require('../assets/images/busFondBon.jpeg')}
+          style={styles.voyageImage}
+        />
+        <View style={styles.voyageInfo}>
+          <Text style={styles.voyageAgency}>{agency.name || 'Agence'}</Text>
+          <View style={styles.voyageDetails}>
+            <Text style={styles.voyageTime}>Départ: {item.heureDepart}</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.dateContainer}>
-          <Text style={styles.dateText}>{date} | {time}</Text>
+      </TouchableOpacity>
+    );
+  };
+  
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={handleGoBack}>
+          <Icon name="arrow-left" size={24} color="black" />
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Résultat de Recherche</Text>
+        <Image
+          source={require('../assets/images/logo.jpg')}
+          style={styles.headerLogo}
+          resizeMode="contain"
+        />
       </View>
 
-      {voyages.length === 0 ? (
-        <View style={styles.noResultsContainer}>
-          <Text style={styles.noResultsText}>
-            Aucun voyage trouvé pour cette recherche.
-          </Text>
+      {/* Travel Info */}
+      <View style={styles.travelCard}>
+        <Image
+          source={require('../assets/images/busFondBon.jpeg')}
+          style={styles.busIcon}
+        />
+        <View style={styles.cityRow}>
+          <Text style={styles.cityText}>{departure}</Text>
+          <MaterialCommunityIcons name="swap-horizontal" size={24} color="#fff" />
+          <Text style={styles.cityText}>{destination}</Text>
+        </View>
+        <Text style={styles.dateText}>
+          {date} {time ? `à ${time}` : ''}
+        </Text>
+      </View>
+
+      {/* Results */}
+      {loading ? (
+        <ActivityIndicator size="large" color="#2C52A4" style={{ marginTop: 20 }} />
+      ) : voyages.length === 0 ? (
+        <View style={styles.noResultContainer}>
+          <Text style={styles.noResultText}>Aucun voyage disponible pour cette recherche</Text>
           <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}>
-            <Text style={styles.backButtonText}>Retour à la recherche</Text>
+            style={styles.retryButton}
+            onPress={handleGoBack}
+          >
+            <Text style={styles.retryButtonText}>Modifier la recherche</Text>
           </TouchableOpacity>
         </View>
       ) : (
         <FlatList
           data={voyages}
+          renderItem={renderVoyageItem}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity onPress={() => handleVoyageSelect(item)}>
-              <Card style={styles.card}>
-                <View style={styles.cardContent}>
-                  <View style={styles.agencyInfo}>
-                    <Text style={styles.agencyName}>{item.agencyName}</Text>
-                    <Text style={styles.seatType}>
-                      {item.placesClassiqueDisponibles > 0 ? 'Classique' : ''} 
-                      {item.placesClassiqueDisponibles > 0 && item.placesVIPDisponibles > 0 ? ' & ' : ''}
-                      {item.placesVIPDisponibles > 0 ? 'VIP' : ''}
-                    </Text>
-                  </View>
-                  
-                  <View style={styles.timeContainer}>
-                    <Text style={styles.time}>{item.heureDepart}</Text>
-                    <Text style={styles.duration}>
-                      {/* Ici on pourrait calculer la durée si on avait l'heure d'arrivée */}
-                    </Text>
-                  </View>
-                  
-                  <View style={styles.priceSeatsContainer}>
-                    <View style={styles.priceContainer}>
-                      <Text style={styles.price}>
-                        {item.placesClassiqueDisponibles > 0 
-                          ? `${item.prixClassique} FCFA` 
-                          : `${item.prixVIP} FCFA`}
-                      </Text>
-                    </View>
-                    
-                    <View style={styles.seatsContainer}>
-                      <Text style={[
-                        styles.seatsText,
-                        (item.placesClassiqueDisponibles + item.placesVIPDisponibles) < 5 
-                          ? styles.fewSeatsLeft 
-                          : null
-                      ]}>
-                        {item.placesClassiqueDisponibles + item.placesVIPDisponibles} places disponibles
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                
-                <Divider style={styles.divider} />
-                
-                <View style={styles.bottomContainer}>
-                  {renderServiceIcons(item.services)}
-                  <View style={styles.rightIcons}>
-                    <IconButton icon="information-outline" size={20} color="#4169E1" />
-                    <IconButton icon="share-variant-outline" size={20} color="#4169E1" />
-                    <IconButton icon="cart-outline" size={20} color="#4169E1" onPress={() => handleVoyageSelect(item)} />
-                  </View>
-                </View>
-              </Card>
-            </TouchableOpacity>
-          )}
-          contentContainerStyle={styles.listContainer}
+          contentContainerStyle={styles.resultsContainer}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f0f0f0',
-  },
+  container: { flex: 1, backgroundColor: '#fff' },
   header: {
-    backgroundColor: '#4169E1',
-    padding: 15,
-    borderBottomLeftRadius: 15,
-    borderBottomRightRadius: 15,
-  },
-  routeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+  },
+  headerTitle: { fontSize: 16, fontWeight: 'bold' },
+  headerLogo: { width: 60, height: 40 },
+
+  travelCard: {
+    marginHorizontal: 15,
+    marginVertical: 10,
+    backgroundColor: '#3D56F0',
+    borderRadius: 10,
+    alignItems: 'center',
+    padding: 15,
   },
   busIcon: {
-    width: 40,
-    height: 40,
-    tintColor: 'white',
+    width: 80,
+    height: 80,
+    marginBottom: 10,
     resizeMode: 'contain',
   },
-  routeInfo: {
+  cityRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
+    justifyContent: 'space-between',
+    width: '80%',
+    marginBottom: 10,
   },
-  routeText: {
-    color: 'white',
-    fontSize: 18,
+  cityText: {
+    color: '#fff',
     fontWeight: 'bold',
-  },
-  swapIcon: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    margin: 0,
-  },
-  dateContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    padding: 10,
-    borderRadius: 20,
-    alignItems: 'center',
+    fontSize: 16,
   },
   dateText: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  listContainer: {
-    padding: 10,
-  },
-  card: {
-    marginVertical: 8,
-    borderRadius: 10,
-    elevation: 3,
-  },
-  cardContent: {
-    padding: 15,
-  },
-  agencyInfo: {
-    marginBottom: 10,
-  },
-  agencyName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  seatType: {
+    backgroundColor: '#fff',
+    color: '#3D56F0',
     fontSize: 14,
-    color: '#666',
-  },
-  timeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  time: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginRight: 10,
-  },
-  duration: {
-    fontSize: 14,
-    color: '#666',
-  },
-  priceSeatsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  priceContainer: {
-    backgroundColor: '#4169E1',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 5,
-  },
-  price: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  seatsContainer: {},
-  seatsText: {
-    color: 'green',
-    fontWeight: 'bold',
-  },
-  fewSeatsLeft: {
-    color: 'red',
-  },
-  divider: {
-    backgroundColor: '#ddd',
-  },
-  bottomContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 15,
     paddingVertical: 5,
+    borderRadius: 20,
+    overflow: 'hidden',
   },
-  serviceIconsContainer: {
+
+  voyageCard: {
     flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderColor: '#FF8C00',
+    borderWidth: 1,
+    marginHorizontal: 15,
+    marginBottom: 15,
+    padding: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    elevation: 2,
   },
-  serviceIcon: {
-    marginRight: 10,
+  voyageImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 5,
   },
-  rightIcons: {
-    flexDirection: 'row',
+  voyageInfo: {
+    marginLeft: 15,
+    flex: 1,
   },
-  loadingContainer: {
+  voyageAgency: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  voyageDetails: {
+    marginTop: 5,
+  },
+  voyageTime: {
+    fontSize: 14,
+    color: '#666',
+  },
+  voyageDate: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
+  voyagePrice: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
+  tapPrompt: {
+    fontSize: 12,
+    color: '#3D56F0',
+    marginTop: 5,
+    fontWeight: 'bold',
+  },
+  noResultContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 20,
   },
-  loadingText: {
-    marginTop: 10,
+  noResultText: {
     fontSize: 16,
-    color: '#4169E1',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  errorText: {
-    color: 'red',
-    fontSize: 16,
-    marginBottom: 20,
+    color: '#999',
     textAlign: 'center',
+    marginBottom: 20,
   },
   retryButton: {
-    backgroundColor: '#4169E1',
-    padding: 10,
+    backgroundColor: '#3D56F0',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
     borderRadius: 5,
   },
   retryButtonText: {
-    color: 'white',
+    color: '#fff',
     fontWeight: 'bold',
   },
-  noResultsContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  noResultsText: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  backButton: {
-    backgroundColor: '#4169E1',
-    padding: 10,
-    borderRadius: 5,
-  },
-  backButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
+  resultsContainer: {
+    paddingBottom: 20,
   },
 });
 
