@@ -50,12 +50,15 @@ export const ROUTES = {
   HORAIRE: 'Horaire',
   DETAIL_RESERVATION: 'DetailReservation',
   MAIN_TABS: 'MainTabs',
+  AUTH: 'Auth',
 };
 
-function AuthNavigator() {
+function AuthNavigator({ setIsLoggedIn }) {
   return (
     <AuthStack.Navigator screenOptions={{ headerShown: false }}>
-      <AuthStack.Screen name={ROUTES.LOGIN} component={LoginScreen} />
+      <AuthStack.Screen name={ROUTES.LOGIN}>
+        {(props) => <LoginScreen {...props} setIsLoggedIn={setIsLoggedIn} />}
+      </AuthStack.Screen>
       <AuthStack.Screen name={ROUTES.REGISTER} component={RegistrationScreen} />
     </AuthStack.Navigator>
   );
@@ -79,16 +82,16 @@ function OnboardingNavigator({ onFinishOnboarding }) {
 
 function MainStack() {
   return (
-    <Stack.Navigator>
-      <Stack.Screen name={ROUTES.HOME} component={HomeScreen} options={{ headerShown: false }} />
-      <Stack.Screen name={ROUTES.AGENCY_DETAIL} component={AgencyDetail} options={{ headerShown: false }} />
-      <Stack.Screen name={ROUTES.AGENCY_SELECT} component={AgencySelect} options={{ headerShown: false }} />
-      <Stack.Screen name={ROUTES.DETAIL_RESERVATION} component={DetailReservation} options={{ headerShown: false }} />
-       <Stack.Screen name={ROUTES.SEARCH_RESULTS} component={SearchResults} options={{ headerShown: false }} />
-      <Stack.Screen name={ROUTES.HORAIRE} component={HoraireScreen} options={{ title: 'Horaires' }} />
-      <Stack.Screen name={ROUTES.SEAT_SELECTION} component={SeatSelection} options={{ title: 'Choix des sièges', headerBackTitle: 'Retour' }} />
-      <Stack.Screen name={ROUTES.PAYMENT} component={Payment} options={{ title: 'Paiement' }} />
-      <Stack.Screen name={ROUTES.TICKET} component={Tickets} options={{ title: 'Billets' }} />
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name={ROUTES.HOME} component={HomeScreen} />
+      <Stack.Screen name={ROUTES.AGENCY_DETAIL} component={AgencyDetail} />
+      <Stack.Screen name={ROUTES.AGENCY_SELECT} component={AgencySelect} />
+      <Stack.Screen name={ROUTES.DETAIL_RESERVATION} component={DetailReservation} />
+      <Stack.Screen name={ROUTES.SEARCH_RESULTS} component={SearchResults} />
+      <Stack.Screen name={ROUTES.HORAIRE} component={HoraireScreen} />
+      <Stack.Screen name={ROUTES.SEAT_SELECTION} component={SeatSelection} />
+      <Stack.Screen name={ROUTES.PAYMENT} component={Payment} />
+      <Stack.Screen name={ROUTES.TICKET} component={Tickets} />
     </Stack.Navigator>
   );
 }
@@ -97,7 +100,7 @@ function ProfileStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name={ROUTES.PROFILE} component={Profile} />
-      <Stack.Screen name={ROUTES.RESERVATIONS} component={Reservations} options={{ title: 'Mes Réservations' }} />
+      <Stack.Screen name={ROUTES.RESERVATIONS} component={Reservations} />
     </Stack.Navigator>
   );
 }
@@ -117,13 +120,9 @@ function MainTabs() {
         tabBarIcon: ({ color, focused }) => {
           let iconName;
 
-          if (route.name === 'HomeTab') {
-            iconName = 'home';
-          } else if (route.name === 'HelpTab') {
-            iconName = 'help-circle';
-          } else if (route.name === 'ProfileTab') {
-            iconName = 'user';
-          }
+          if (route.name === 'HomeTab') iconName = 'home';
+          else if (route.name === 'HelpTab') iconName = 'help-circle';
+          else if (route.name === 'ProfileTab') iconName = 'user';
 
           return (
             <View style={[styles.iconContainer, focused && styles.activeIconContainer]}>
@@ -138,7 +137,7 @@ function MainTabs() {
         tabBarLabelStyle: styles.tabBarLabel,
         headerShown: false,
         tabBarStyle: styles.tabBar,
-        tabBarHideOnKeyboard: true
+        tabBarHideOnKeyboard: true,
       })}
     >
       <Tab.Screen name="HomeTab" component={MainStack} options={{ title: 'Accueil' }} />
@@ -148,7 +147,7 @@ function MainTabs() {
   );
 }
 
-function App() {
+export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasOnboarded, setHasOnboarded] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -168,6 +167,7 @@ function App() {
         SplashScreen.hide();
       }
     }
+
     checkOnboardingAndAuth();
   }, []);
 
@@ -198,7 +198,9 @@ function App() {
               {() => <OnboardingNavigator onFinishOnboarding={handleFinishOnboarding} />}
             </Stack.Screen>
           ) : !isLoggedIn ? (
-            <Stack.Screen name="Auth" component={AuthNavigator} />
+            <Stack.Screen name={ROUTES.AUTH}>
+              {() => <AuthNavigator setIsLoggedIn={setIsLoggedIn} />}
+            </Stack.Screen>
           ) : (
             <Stack.Screen name={ROUTES.MAIN_TABS} component={MainTabs} />
           )}
@@ -213,35 +215,28 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  tabBarLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 5,
   },
   tabBar: {
     height: 60,
     paddingBottom: 5,
   },
+  tabBarLabel: {
+    fontSize: 12,
+    marginBottom: 5,
+  },
   iconContainer: {
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 5,
-    paddingHorizontal: 15,
-    borderRadius: 20,
+    justifyContent: 'center',
   },
   activeIconContainer: {
-    backgroundColor: '#5e17eb20',
+    position: 'relative',
   },
   activeIndicator: {
     position: 'absolute',
-    bottom: 3,
-    height: 4,
-    width: 20,
-    borderRadius: 2,
+    bottom: -4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: '#5e17eb',
   },
 });
-
-export default App;

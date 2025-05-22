@@ -56,7 +56,7 @@ const Agency_select = () => {
   };
 
   // Get agency logo based on ID
-  const getAgencyLogo = (agencyId) => {
+  const getAgencyLogo = (agencyId) => { 
     switch(agencyId) {
       case 'general_express_voyage':
         return require('../assets/images/GeneraleExpress.png');
@@ -64,6 +64,7 @@ const Agency_select = () => {
         return require('../assets/images/BucaVoyage.jpg');
       default:
         return require('../assets/images/touristique.jpg');
+
     }
   };
 

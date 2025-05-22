@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
+import auth from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/Feather';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import { Dropdown } from 'react-native-element-dropdown';
@@ -31,9 +32,22 @@ const HomeScreen = () => {
   const [departureCities, setDepartureCities] = useState([]);
   const [destinationCities, setDestinationCities] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
     fetchVoyages();
+    
+    // Vérifier l'état d'authentification
+    const unsubscribe = auth().onAuthStateChanged((user) => {
+      setCurrentUser(user);
+      if (!user) {
+        console.log('[HomeScreen] No authenticated user found');
+      } else {
+        console.log('[HomeScreen] Current user:', user.uid);
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const fetchVoyages = async () => {
@@ -77,33 +91,54 @@ const HomeScreen = () => {
   };
 
   const handleSearch = () => {
-  // 1. Validation des champs obligatoires
-  if (!departureCity || !destinationCity) {
-    Alert.alert(
-      'Information manquante',
-      'Veuillez sélectionner une ville de départ et une destination'
-    );
-    return;
-  }
+    // 1. Validation des champs obligatoires
+    if (!departureCity || !destinationCity) {
+      Alert.alert(
+        'Information manquante',
+        'Veuillez sélectionner une ville de départ et une destination'
+      );
+      return;
+    }
 
-  // 2. Formatage des paramètres
-  const searchParams = {
-    departure: departureCity,
-    destination: destinationCity,
-    ...(departureDate && { date: moment(departureDate).format('YYYY-MM-DD') }),
-    ...(departureTime && { time: moment(departureTime).format('HH:mm') })
+    // 2. Formatage des paramètres
+    const searchParams = {
+      departure: departureCity,
+      destination: destinationCity,
+      ...(departureDate && { date: moment(departureDate).format('YYYY-MM-DD') }),
+      ...(departureTime && { time: moment(departureTime).format('HH:mm') })
+    };
+
+    // 3. Navigation sécurisée
+    if (navigation && navigation.navigate) {
+      navigation.navigate(ROUTES.SEARCH_RESULTS, searchParams);
+    } else {
+      console.error("L'objet navigation n'est pas disponible");
+    }
   };
-
-  // 3. Navigation sécurisée
-  if (navigation && navigation.navigate) {
-    navigation.navigate('SearchResults', searchParams);
-  } else {
-    console.error("L'objet navigation n'est pas disponible");
-  }
-};
 
   const navigateToAgencySelection = () => {
     navigation.navigate(ROUTES.AGENCY_SELECT);
+  };
+
+  const navigateToProfile = () => {
+    if (!currentUser) {
+      Alert.alert(
+        'Non connecté',
+        'Vous devez être connecté pour accéder au profil.',
+        [
+          {
+            text: 'Se connecter',
+            onPress: () => navigation.navigate(ROUTES.LOGIN)
+          },
+          {
+            text: 'Annuler',
+            style: 'cancel'
+          }
+        ]
+      );
+    } else {
+      navigation.navigate('ProfileTab', { screen: ROUTES.PROFILE });
+    }
   };
 
   return (
@@ -111,10 +146,15 @@ const HomeScreen = () => {
       <StatusBar backgroundColor="#ffffff" barStyle="dark-content" />
       <View style={styles.header}>
         <Text style={styles.welcomeText}>Bienvenue</Text>
-        <TouchableOpacity style={styles.notificationButton}>
-          <Icon name="bell" size={24} color="#000" />
-        </TouchableOpacity>
-      </View>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity style={styles.notificationButton}>
+            <Icon name="bell" size={24} color="#000" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.profileButton} onPress={navigateToProfile}>
+            <Icon name="user" size={24} color="#000" />
+          </TouchableOpacity>
+        </View>
+      </View> 
 
       <ScrollView style={styles.scrollView}>
         <View style={styles.busImageContainer}>
@@ -241,7 +281,14 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
   },
+  headerButtons: {
+    flexDirection: 'row',
+  },
   notificationButton: {
+    padding: 5,
+    marginRight: 10,
+  },
+  profileButton: {
     padding: 5,
   },
   scrollView: {

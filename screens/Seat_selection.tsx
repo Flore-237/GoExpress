@@ -7,7 +7,6 @@ import {
   Image,
   ScrollView,
   SafeAreaView,
-  Modal,
   Alert
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -18,68 +17,64 @@ const SeatSelectionScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   
-  // Extraction des paramètres avec toutes les possibilités
+  // Extraction des paramètres avec valeurs par défaut
   const { 
-    tripId, 
-    agencyId, 
-    tripDetails, 
-    searchResult, 
-    origin, 
-    destination, 
-    departureTime, 
-    departureDate, 
-    price, 
-    classicPrice, 
-    vipPrice, 
-    agencyName: routeAgencyName,
-    // Données venant de SearchResultsScreen
-    voyage: searchVoyage,
-    agencyDetails: searchAgencyDetails
+    tripId = '', 
+    agencyId = '', 
+    tripDetails = {}, 
+    searchResult = {}, 
+    origin = '', 
+    destination = '', 
+    departureTime = '', 
+    departureDate = '', 
+    price = 0, 
+    classicPrice = 0, 
+    vipPrice = 0, 
+    agencyName: routeAgencyName = '',
+    voyage: searchVoyage = {},
+    agencyDetails: searchAgencyDetails = {}
   } = route.params || {};
 
   // Détermine la source des données
-  const isFromSearch = !!searchVoyage || (origin && destination);
+  const isFromSearch = !!searchVoyage?.id || (origin && destination);
 
-  // Normalisation des données
+  // Normalisation des données avec protections
   const tripData = isFromSearch ? { 
     ...searchVoyage,
-    id: searchVoyage?.id || tripId,
-    origin: origin || searchVoyage?.departure,
-    destination: destination || searchVoyage?.destination,
-    departureTime: departureTime || searchVoyage?.heureDepart,
-    departureDate: departureDate || searchVoyage?.date,
-    prixClassique: classicPrice || price || searchVoyage?.price,
-    prixVIP: vipPrice || searchVoyage?.vipPrice,
-    agencyName: routeAgencyName || searchAgencyDetails?.name,
-    agencyId: agencyId || searchVoyage?.agencyId,
-    logoUrl: searchAgencyDetails?.logoUrl,
-    availableClassicSeats: searchVoyage?.availableClassicSeats,
-    availableVIPSeats: searchVoyage?.availableVIPSeats
+    id: searchVoyage?.id || tripId || 'default_id',
+    origin: origin || searchVoyage?.departure || '',
+    destination: destination || searchVoyage?.destination || '',
+    departureTime: departureTime || searchVoyage?.heureDepart || '',
+    departureDate: departureDate || searchVoyage?.date || '',
+    prixClassique: classicPrice || price || searchVoyage?.price || 0,
+    prixVIP: vipPrice || searchVoyage?.vipPrice || 0,
+    agencyName: routeAgencyName || searchAgencyDetails?.name || '',
+    agencyId: agencyId || searchVoyage?.agencyId || '',
+    logoUrl: searchAgencyDetails?.logoUrl || '',
+    availableClassicSeats: searchVoyage?.availableClassicSeats || 0,
+    availableVIPSeats: searchVoyage?.availableVIPSeats || 0
   } : tripDetails || {};
 
-  console.log('Source des données:', isFromSearch ? 'SearchResultsScreen' : 'AgencyDetailScreen');
-  console.log('Données normalisées:', tripData);
-
-  // Données du voyage normalisées
+  // Données du voyage avec valeurs par défaut
   const voyage = {
     id: tripData.id || 'default_trip_id',
-    departure: tripData.origin || tripData.departure || 'Ville de départ',
-    destination: tripData.destination || 'Ville d\'arrivée',
+    departure: tripData.origin || tripData.departure || 'Ville inconnue',
+    destination: tripData.destination || 'Ville inconnue',
     heureDepart: tripData.departureTime || tripData.heureDepart || '--:--',
     dateDepart: tripData.departureDate || tripData.date || new Date().toISOString(),
   };
 
-  // Informations sur l'agence
-  const agencyName = tripData.agencyName || routeAgencyName || 'Agence de voyage';
+  // Informations sur l'agence avec valeurs par défaut
+  const agencyName = tripData.agencyName || routeAgencyName || 'Agence inconnue';
   const logoUrl = tripData.logoUrl || 'https://via.placeholder.com/50';
 
-  // Prix
+  // Prix avec valeurs par défaut
   const prixClassique = tripData.prixClassique ? Number(tripData.prixClassique) : 5000;
   const prixVip = tripData.prixVIP ? Number(tripData.prixVIP) : prixClassique + 1000;
 
-  // Places disponibles
-  const placesClassiqueDisponibles = Number(tripData.availableClassicSeats) || Number(tripData.placesClassiqueDisponibles) || 0;
-  const placesVIPDisponibles = Number(tripData.availableVIPSeats) || Number(tripData.placesVIPDisponibles) || 0;
+  // Places disponibles avec valeurs par défaut
+  const placesClassiqueDisponibles = Number(tripData.availableClassicSeats) || 0;
+  const placesVIPDisponibles = Number(tripData.availableVIPSeats) || 0;
 
   const agencyDetails = {
     id: tripData.agencyId || agencyId || 'default_agency_id',
@@ -91,7 +86,7 @@ const SeatSelectionScreen = () => {
     }
   };
 
-  // États pour la sélection des sièges
+  // États initiaux
   const [selectedSeatType, setSelectedSeatType] = useState('Classique');
   const [selectedSeats, setSelectedSeats] = useState([]);
   const [classiqueSeats, setClassiqueSeats] = useState([]);
@@ -99,16 +94,20 @@ const SeatSelectionScreen = () => {
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [currentPrice, setCurrentPrice] = useState(0);
 
-  // Sièges déjà réservés
-  const reservedClassiqueSeats = tripData.reservedClassiqueSeats || [5, 12, 20, 33, 48];
-  const reservedVipSeats = tripData.reservedVipSeats || [2, 8, 15];
+  // Sièges réservés avec valeurs par défaut
+  const reservedClassiqueSeats = Array.isArray(tripData.reservedClassiqueSeats) 
+    ? tripData.reservedClassiqueSeats 
+    : [5, 12, 20, 33, 48];
+  const reservedVipSeats = Array.isArray(tripData.reservedVipSeats) 
+    ? tripData.reservedVipSeats 
+    : [2, 8, 15];
 
-  // Génération des sièges disponibles
+  // Génération des sièges
   useEffect(() => {
     generateSeats();
   }, []);
 
-  // Mise à jour du prix
+  // Calcul du prix
   useEffect(() => {
     const pricePerSeat = selectedSeatType === 'Classique' ? prixClassique : prixVip;
     const calculatedPrice = pricePerSeat * selectedSeats.length;
@@ -194,6 +193,8 @@ const SeatSelectionScreen = () => {
   };
 
   const organizeSeatsIntoRows = (seats) => {
+    if (!Array.isArray(seats)) return [];
+    
     return seats.reduce((rows, seat) => {
       if (!rows[seat.row]) rows[seat.row] = [];
       rows[seat.row].push(seat);
@@ -205,32 +206,36 @@ const SeatSelectionScreen = () => {
     const seats = selectedSeatType === 'Classique' ? classiqueSeats : vipSeats;
     const rows = organizeSeatsIntoRows(seats);
 
+    if (!Array.isArray(rows)) return null;
+
     return (
       <View style={styles.seatLayout}>
         {rows.map((row, rowIndex) => (
-          <View key={`row-${rowIndex}`} style={styles.seatRow}>
-            {row.map(seat => (
-              <TouchableOpacity
-                key={seat.id}
-                style={[
-                  styles.seat,
-                  selectedSeatType === 'VIP' && styles.vipSeat,
-                  !seat.available && styles.unavailableSeat,
-                  selectedSeats.some(s => s.id === seat.id) && styles.selectedSeat
-                ]}
-                onPress={() => handleSeatSelect(seat)}
-                disabled={!seat.available}
-              >
-                <Text style={[
-                  styles.seatLabel,
-                  !seat.available && styles.unavailableSeatLabel,
-                  selectedSeats.some(s => s.id === seat.id) && styles.selectedSeatLabel
-                ]}>
-                  {seat.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          row && Array.isArray(row) && (
+            <View key={`row-${rowIndex}`} style={styles.seatRow}>
+              {row.map(seat => (
+                <TouchableOpacity
+                  key={seat.id}
+                  style={[
+                    styles.seat,
+                    selectedSeatType === 'VIP' && styles.vipSeat,
+                    !seat.available && styles.unavailableSeat,
+                    selectedSeats.some(s => s.id === seat.id) && styles.selectedSeat
+                  ]}
+                  onPress={() => handleSeatSelect(seat)}
+                  disabled={!seat.available}
+                >
+                  <Text style={[
+                    styles.seatLabel,
+                    !seat.available && styles.unavailableSeatLabel,
+                    selectedSeats.some(s => s.id === seat.id) && styles.selectedSeatLabel
+                  ]}>
+                    {seat.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )
         ))}
       </View>
     );
@@ -286,6 +291,7 @@ const SeatSelectionScreen = () => {
         <Image 
           source={{ uri: agencyDetails.logoUrl }} 
           style={styles.agencyLogo}
+          defaultSource={{ uri: 'https://via.placeholder.com/50' }}
         />
         <View style={styles.agencyInfo}>
           <Text style={styles.agencyName}>{agencyDetails.name}</Text>
@@ -372,7 +378,7 @@ const SeatSelectionScreen = () => {
   );
 };
 
-// Styles (identique à votre version originale)
+// Styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -594,6 +600,11 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     backgroundColor: '#aaa',
+  },
+  reserveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   infoContainer: {
     backgroundColor: '#f0f8ff',

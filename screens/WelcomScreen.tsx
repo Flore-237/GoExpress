@@ -44,7 +44,7 @@ const WelcomeScreen = ({ onNext }) => {
           style={styles.button} 
           onPress={onNext}
         >
-          <Text style={styles.buttonText}>Bensonoic</Text>
+          <Text style={styles.buttonText}>Commencer</Text>
         </TouchableOpacity>
       </View>
     </View>

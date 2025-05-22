@@ -21,7 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Animatable from 'react-native-animatable';
 import { ROUTES } from '../App';
 
-const LoginScreen = () => {
+const LoginScreen = ({ setIsLoggedIn }) => {
   const navigation = useNavigation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,7 +37,7 @@ const LoginScreen = () => {
       newErrors.email = 'Email est requis';
       isValid = false;
     } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = 'Format d’email invalide';
+      newErrors.email = 'Format d\'email invalide';
       isValid = false;
     }
 
@@ -60,9 +60,18 @@ const LoginScreen = () => {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const token = await userCredential.user.getIdToken();
+      
       await AsyncStorage.setItem('authToken', token);
-      navigation.reset({ index: 0, routes: [{ name: ROUTES.MAIN_TABS }] });
+      setIsLoggedIn(true); // Met à jour l'état d'authentification
+      
+      // Redirection vers l'écran principal
+      navigation.reset({
+        index: 0,
+        routes: [{ name: ROUTES.MAIN_TABS }],
+      });
+      
     } catch (error) {
+      console.error('Login error:', error);
       Alert.alert('Erreur', 'Email ou mot de passe incorrect');
     } finally {
       setIsLoading(false);
@@ -139,7 +148,13 @@ const styles = StyleSheet.create({
   logoContainer: { alignItems: 'center', marginBottom: 30 },
   logo: { width: 120, height: 120, resizeMode: 'contain' },
   formContainer: { width: '100%' },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, textAlign: 'center', color: '#5e17eb' },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+    color: '#5e17eb'
+  },
   input: {
     borderWidth: 1,
     borderColor: '#ccc',
@@ -166,7 +181,12 @@ const styles = StyleSheet.create({
     marginVertical: 10,
   },
   buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  registerText: { textAlign: 'center', color: '#5e17eb', marginTop: 10 },
+  registerText: {
+    textAlign: 'center',
+    color: '#5e17eb',
+    marginTop: 10,
+    textDecorationLine: 'underline',
+  },
 });
 
 export default LoginScreen;

@@ -1,403 +1,404 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';  
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
-  Image,
-  Alert,
-  ActivityIndicator,
+  TouchableOpacity,
+  TextInput,
   ScrollView,
   SafeAreaView,
-  KeyboardAvoidingView,
-  Platform,
+  Alert,
+  ActivityIndicator,
+  Image
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { getAuth } from 'firebase/auth';
-import { collection, addDoc, doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { db } from './firebase';
-import PassengerForm from '../screens/formulaire';
+import Icon from 'react-native-vector-icons/Feather';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
 
 const PaymentScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const [loading, setLoading] = useState(false);
-  const [user, setUser] = useState(null);
-  const [passengers, setPassengers] = useState([]);
-  const [activePassengerIndex, setActivePassengerIndex] = useState(0);
-  const [showPassengerForm, setShowPassengerForm] = useState(true);
-  const [formCompleted, setFormCompleted] = useState(false);
-  
-  const voyageData = route.params?.voyageData || {
-    agencyId: 'bucca_voyage',
-    agencyName: 'Bucca Voyage',
-    departure: 'Douala',
-    destination: 'Yaounde',
-    departureTime: '14h00',
-    seatType: 'classique',
-    seatCount: 2,
-    totalPrice: 10000,
-    voyageId: 'voyage_sample',
-    dateDepart: '2025-05-15',
-  };
+  const { reservationData, voyageData } = route.params || {};
 
+  // Utilisateur actuel
+  const [currentUser, setCurrentUser] = useState(null);
+  
+  // États pour les passagers
+  const [passengers, setPassengers] = useState([{
+    fullName: '',
+    email: '',
+    phone: '',
+    pieceIdentite: '',
+    seatLabel: ''
+  }]);
+  
+  // État de chargement
+  const [loading, setLoading] = useState(false);
+  // État pour suivre si les données utilisateur ont été chargées
+  const [userDataLoaded, setUserDataLoaded] = useState(false);
+
+  // Date et heure actuelles
+  const currentDate = new Date();
+  const formattedDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+  const formattedTime = `${String(currentDate.getHours()).padStart(2, '0')}:${String(currentDate.getMinutes()).padStart(2, '0')}`;
+
+  // Initialisation des passagers en fonction du nombre de sièges sélectionnés
   useEffect(() => {
-    const fetchUserData = async () => {
-      const auth = getAuth();
-      const currentUser = auth.currentUser;
+    if (reservationData && reservationData.selectedSeats && reservationData.selectedSeats.length > 0) {
+      const initialPassengers = reservationData.selectedSeats.map(seat => ({
+        fullName: '',
+        email: '',
+        phone: '',
+        pieceIdentite: '',
+        seatLabel: seat.label
+      }));
+      setPassengers(initialPassengers);
       
-      if (currentUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            setUser(userData);
+      console.log('Initialisation des passagers:', initialPassengers.length);
+    }
+  }, [reservationData]);
+
+  // Récupération de l'utilisateur actuel
+  useEffect(() => {
+    console.log('Vérification de l\'utilisateur connecté...');
+    const user = auth().currentUser;
+    if (user) {
+      console.log('Utilisateur connecté:', user.uid);
+      setCurrentUser(user);
+      
+      // Récupérer les informations de l'utilisateur depuis Firestore
+      firestore()
+        .collection('users')
+        .doc(user.uid)
+        .get()
+        .then(documentSnapshot => {
+          console.log('Récupération des données utilisateur...');
+          if (documentSnapshot.exists) {
+            const userData = documentSnapshot.data();
+            console.log('Données utilisateur récupérées:', userData);
             
-            const initialPassengers = Array(voyageData.seatCount).fill().map((_, index) => ({
-              firstName: index === 0 ? userData.firstName || '' : '',
-              lastName: index === 0 ? userData.lastName || '' : '',
-              age: '',
-              gender: 'Masculin',
-              phone: index === 0 ? userData.phone || '' : '',
-              email: index === 0 ? userData.email || '' : '',
-              cni: '',
-            }));
-            setPassengers(initialPassengers);
+            // Mettre à jour uniquement le premier passager avec les données de l'utilisateur
+            setPassengers(prevPassengers => {
+              const updatedPassengers = [...prevPassengers];
+              updatedPassengers[0] = {
+                ...updatedPassengers[0],
+                fullName: userData.fullName || '',
+                email: userData.email || user.email || '',
+                phone: userData.phone || ''
+              };
+              return updatedPassengers;
+            });
+            
+            setUserDataLoaded(true);
+          } else {
+            console.log('Aucune donnée utilisateur trouvée dans Firestore');
+            // Mettre à jour uniquement l'email du premier passager
+            setPassengers(prevPassengers => {
+              const updatedPassengers = [...prevPassengers];
+              updatedPassengers[0] = {
+                ...updatedPassengers[0],
+                email: user.email || ''
+              };
+              return updatedPassengers;
+            });
+            
+            setUserDataLoaded(true);
           }
-        } catch (error) {
-          console.error('Error fetching user data:', error);
-          Alert.alert('Erreur', 'Impossible de récupérer vos informations');
-        }
-      } else {
-        Alert.alert('Erreur', 'Veuillez vous connecter pour réserver');
-        navigation.navigate('Login');
-      }
-    };
-    
-    fetchUserData();
+        })
+        .catch(error => {
+          console.error('Erreur lors de la récupération des informations utilisateur:', error);
+          setUserDataLoaded(true);
+        });
+    } else {
+      console.log('Aucun utilisateur connecté');
+      setUserDataLoaded(true);
+    }
   }, []);
 
-  useEffect(() => {
-    const isFormComplete = passengers.every(passenger => 
-      passenger.firstName && 
-      passenger.lastName && 
-      passenger.age && 
-      passenger.gender && 
-      passenger.phone
-    );
-    setFormCompleted(isFormComplete);
-  }, [passengers]);
+  const handleGoBack = () => navigation.goBack();
 
-  const handleGoBack = () => {
-    navigation.goBack();
-  };
-
-  const handlePassengerChange = (index, field, value) => {
-    const updatedPassengers = [...passengers];
-    updatedPassengers[index][field] = value;
-    setPassengers(updatedPassengers);
-  };
-
-  const handlePassengerSelect = (index) => {
-    setActivePassengerIndex(index);
-  };
-
-  const validatePassengerData = () => {
+  const validateForm = () => {
+    console.log('Validation du formulaire...');
+    
+    // Vérifier chaque passager
     for (let i = 0; i < passengers.length; i++) {
       const passenger = passengers[i];
-      if (!passenger.firstName || !passenger.lastName || !passenger.age || !passenger.gender || !passenger.phone) {
-        Alert.alert('Erreur', `Veuillez remplir toutes les informations obligatoires pour le passager ${i + 1}`);
+      if (!passenger.fullName.trim()) {
+        Alert.alert('Erreur', `Veuillez entrer le nom complet du passager ${i + 1}`);
         return false;
       }
-      if (isNaN(passenger.age) || parseInt(passenger.age) <= 0) {
-        Alert.alert('Erreur', `L'âge du passager ${i + 1} doit être un nombre valide`);
+      if (!passenger.email.trim() || !passenger.email.includes('@')) {
+        Alert.alert('Erreur', `Veuillez entrer une adresse email valide pour le passager ${i + 1}`);
         return false;
       }
-      if (!/^[0-9]{9,}$/.test(passenger.phone)) {
-        Alert.alert('Erreur', `Le numéro de téléphone du passager ${i + 1} est invalide`);
+      if (!passenger.phone.trim() || passenger.phone.length < 8) {
+        Alert.alert('Erreur', `Veuillez entrer un numéro de téléphone valide pour le passager ${i + 1}`);
+        return false;
+      }
+      if (!passenger.pieceIdentite.trim()) {
+        Alert.alert('Erreur', `Veuillez entrer un numéro de pièce d'identité pour le passager ${i + 1}`);
         return false;
       }
     }
     return true;
   };
 
-  const generateUniqueTicketCode = () => {
-    return `TIK${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+  const generateRandomId = (length = 10) => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
   };
 
-  const handleSubmitReservation = async () => {
-    if (!validatePassengerData()) {
-      return;
-    }
+  const handlePayment = async () => {
+    // Validation du formulaire
+    if (!validateForm()) return;
 
     setLoading(true);
+    console.log('Début du processus de paiement...');
+
     try {
-      const auth = getAuth();
-      const currentUser = auth.currentUser;
+      // Génération d'IDs uniques
+      const reservationId = generateRandomId(20);
+      const paiementId = Math.floor(Math.random() * 10000).toString();
       
-      if (!currentUser) {
-        Alert.alert('Erreur', 'Utilisateur non connecté');
-        navigation.navigate('Login');
-        return;
-      }
+      console.log('IDs générés:', { reservationId, paiementId });
 
-      const ticketIds = [];
-      const ticketData = [];
-      
-      for (let i = 0; i < passengers.length; i++) {
-        const passenger = passengers[i];
-        const ticketCode = generateUniqueTicketCode();
-        
-        const ticketRef = await addDoc(collection(db, 'tickets'), {
-          userId: currentUser.uid,
+      // Traitement de chaque passager
+      const reservationPromises = passengers.map(async (passenger, index) => {
+        // Construction des données à enregistrer pour ce passager
+        const ticketData = {
+          userId: currentUser ? currentUser.uid : 0,
           voyageId: voyageData.voyageId,
-          agencyId: voyageData.agencyId,
-          seatNumber: `${i + 1}${String.fromCharCode(65 + i)}`,
-          prix: voyageData.totalPrice / voyageData.seatCount,
-          typePlace: voyageData.seatType,
-          firstName: passenger.firstName,
-          lastName: passenger.lastName,
-          fullName: `${passenger.firstName} ${passenger.lastName}`,
-          telephone: passenger.phone,
-          email: passenger.email || user?.email || '',
-          departure: voyageData.departure,
-          destination: voyageData.destination,
-          dateDepart: voyageData.dateDepart,
-          heureDepart: voyageData.departureTime,
-          status: 'valid',
-          createdAt: serverTimestamp(),
-          ticketCode: ticketCode,
-          age: passenger.age,
-          gender: passenger.gender,
-          cni: passenger.cni || '',
-        });
-        
-        ticketIds.push(ticketRef.id);
-        
-        ticketData.push({
-          id: ticketRef.id,
-          ...passenger,
-          seatNumber: `${i + 1}${String.fromCharCode(65 + i)}`,
-          ticketCode: ticketCode
-        });
-      }
+          reservationId: `${reservationId}-${index}`,
+          paiementId: paiementId,
+          fullName: passenger.fullName,
+          email: passenger.email,
+          phone: passenger.phone,
+          pieceIdentite: passenger.pieceIdentite,
+          typePlace: reservationData.seatType,
+          placeNumber: passenger.seatLabel,
+          prixTotal: (reservationData.price / passengers.length).toString(),
+          dateReservation: formattedDate,
+          heureReservation: formattedTime,
+          ticketId: Math.floor(Math.random() * 1000) + 1
+        };
 
-      const reservationRef = await addDoc(collection(db, 'reservations'), {
-        userId: currentUser.uid,
-        voyageId: voyageData.voyageId,
-        agencyId: voyageData.agencyId,
-        ticketIds: ticketIds,
-        passengerCount: passengers.length,
-        typePlace: voyageData.seatType,
-        prixTotal: voyageData.totalPrice,
-        statut: 'confirmé',
-        dateReservation: new Date().toISOString().split('T')[0],
-        heureReservation: new Date().toTimeString().split(' ')[0].substring(0, 5),
-        createdAt: serverTimestamp(),
-      });
+        console.log(`Données du ticket pour le passager ${index + 1}:`, ticketData);
 
-      try {
-        const voyageRef = doc(db, 'voyages', voyageData.voyageId);
-        const voyageDoc = await getDoc(voyageRef);
-        
-        if (voyageDoc.exists()) {
-          const voyageData = voyageDoc.data();
-          const fieldToUpdate = voyageData.seatType.toLowerCase() === 'classique' 
-            ? 'placesClassiqueDisponibles' 
-            : 'placesVIPDisponibles';
-            
-          await updateDoc(voyageRef, {
-            [fieldToUpdate]: Math.max(0, (voyageData[fieldToUpdate] || 0) - passengers.length)
+        // Enregistrement dans Firestore
+        return firestore()
+          .collection('reservations')
+          .doc(`${reservationId}-${index}`)
+          .set(ticketData)
+          .then(() => {
+            console.log(`Réservation enregistrée pour le passager ${index + 1}`);
+            return ticketData;
           });
-        }
-      } catch (error) {
-        console.error('Error updating voyage seats:', error);
+      });
+
+      // Attendre que toutes les réservations soient enregistrées
+      const ticketsData = await Promise.all(reservationPromises);
+      console.log('Toutes les réservations ont été enregistrées');
+
+      // Mise à jour des places disponibles dans le voyage
+      const voyageRef = firestore().collection('voyages').doc(voyageData.voyageId);
+      console.log('Mise à jour des places disponibles pour le voyage:', voyageData.voyageId);
+      
+      const voyageDoc = await voyageRef.get();
+      
+      if (voyageDoc.exists) {
+        console.log('Document de voyage trouvé, mise à jour des places...');
+        const seatsToUpdate = reservationData.seatType === 'Classique' 
+          ? { availableClassicSeats: firestore.FieldValue.increment(-reservationData.selectedSeats.length) }
+          : { availableVIPSeats: firestore.FieldValue.increment(-reservationData.selectedSeats.length) };
+        
+        await voyageRef.update(seatsToUpdate);
+        console.log('Places mises à jour avec succès');
+      } else {
+        console.warn('Document de voyage non trouvé!');
       }
 
-      await addDoc(collection(db, 'notifications'), {
-        userId: currentUser.uid,
-        titre: 'Réservation confirmée',
-        message: `Votre réservation pour ${voyageData.departure}-${voyageData.destination} le ${voyageData.dateDepart} a été confirmée`,
-        type: 'reservation',
-        lue: false,
-        dateCreation: new Date().toISOString().split('T')[0],
-        heureCreation: new Date().toTimeString().split(' ')[0].substring(0, 5),
-        createdAt: serverTimestamp(),
-      });
-
-      navigation.navigate('TicketScreen', { 
-        ticketIds: ticketIds,
+      // Navigation vers la page de ticket avec les données
+      console.log('Navigation vers l\'écran Ticket...');
+      navigation.navigate('Ticket', { 
+        ticketData: ticketsData[0], // Utiliser les données du premier ticket pour la compatibilité
+        allTickets: ticketsData,    // Envoyer tous les tickets
         voyageData: voyageData,
-        ticketData: ticketData,
-        reservationId: reservationRef.id
+        reservationData: reservationData
       });
-      
     } catch (error) {
-      console.error('Reservation error:', error);
-      Alert.alert('Erreur', 'Une erreur est survenue lors de la validation de votre réservation');
+      console.error('Erreur détaillée lors de l\'enregistrement de la réservation:', error);
+      console.error('Message:', error.message);
+      console.error('Code:', error.code);
+      console.error('Stack:', error.stack);
+      Alert.alert('Erreur', 'Une erreur est survenue lors de la réservation. Veuillez réessayer.');
     } finally {
       setLoading(false);
     }
   };
 
-  const renderPassengerSummary = () => {
-    return (
-      <View style={styles.passengerSummaryContainer}>
-        <Text style={styles.passengerSummaryTitle}>Résumé des informations</Text>
-        
-        {passengers.map((passenger, index) => (
-          <View key={index} style={styles.passengerSummaryCard}>
-            <View style={styles.passengerSummaryHeader}>
-              <Icon name="account" size={20} color="#2563EB" />
-              <Text style={styles.passengerSummaryName}>
-                {index === 0 ? "Vous" : `Passager ${index + 1}`}: {passenger.firstName} {passenger.lastName}
-              </Text>
-              <TouchableOpacity onPress={() => {
-                setActivePassengerIndex(index);
-                setShowPassengerForm(true);
-              }}>
-                <Icon name="pencil" size={18} color="#64748B" />
-              </TouchableOpacity>
-            </View>
-            
-            <View style={styles.passengerSummaryDetails}>
-              <View style={styles.passengerSummaryItem}>
-                <Text style={styles.passengerSummaryLabel}>Âge:</Text>
-                <Text style={styles.passengerSummaryValue}>{passenger.age} ans</Text>
-              </View>
-              <View style={styles.passengerSummaryItem}>
-                <Text style={styles.passengerSummaryLabel}>Genre:</Text>
-                <Text style={styles.passengerSummaryValue}>{passenger.gender}</Text>
-              </View>
-              <View style={styles.passengerSummaryItem}>
-                <Text style={styles.passengerSummaryLabel}>Téléphone:</Text>
-                <Text style={styles.passengerSummaryValue}>{passenger.phone}</Text>
-              </View>
-            </View>
-          </View>
-        ))}
-        
-        <TouchableOpacity 
-          style={styles.editAllButton}
-          onPress={() => setShowPassengerForm(true)}
-        >
-          <Text style={styles.editAllButtonText}>Modifier les informations</Text>
-          <Icon name="account-edit" size={18} color="#2563EB" />
-        </TouchableOpacity>
-      </View>
-    );
+  const updatePassengerField = (index, field, value) => {
+    const updatedPassengers = [...passengers];
+    updatedPassengers[index] = {
+      ...updatedPassengers[index],
+      [field]: value
+    };
+    setPassengers(updatedPassengers);
   };
 
-  const renderSectionToggle = () => {
-    return (
-      <View style={styles.sectionToggleContainer}>
-        <TouchableOpacity 
-          style={[styles.sectionToggleButton, showPassengerForm && styles.activeSectionToggle]}
-          onPress={() => setShowPassengerForm(true)}
-        >
-          <Text style={[styles.sectionToggleText, showPassengerForm && styles.activeSectionToggleText]}>
-            Formulaire
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.sectionToggleButton, !showPassengerForm && styles.activeSectionToggle]}
-          onPress={() => setShowPassengerForm(false)}
-          disabled={!formCompleted}
-        >
-          <Text style={[
-            styles.sectionToggleText, 
-            !showPassengerForm && styles.activeSectionToggleText,
-            !formCompleted && styles.disabledSectionToggleText
-          ]}>
-            Résumé
-          </Text>
-          {!formCompleted && <Icon name="lock" size={16} color="#A1A1AA" style={styles.lockIcon} />}
-        </TouchableOpacity>
+  const formatPrice = (price) => {
+    return `${Number(price).toLocaleString('fr-FR')} FCFA`;
+  };
+
+  const renderPassengerForms = () => {
+    return passengers.map((passenger, index) => (
+      <View key={`passenger-${index}`} style={styles.formCard}>
+        <Text style={styles.formTitle}>
+          {passengers.length > 1 
+            ? `Passager ${index + 1} - Siège ${passenger.seatLabel}` 
+            : 'Informations du voyageur'}
+        </Text>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Nom complet</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Entrez le nom complet"
+            value={passenger.fullName}
+            onChangeText={(text) => updatePassengerField(index, 'fullName', text)}
+          />
+        </View>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Email</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Entrez l'adresse email"
+            value={passenger.email}
+            onChangeText={(text) => updatePassengerField(index, 'email', text)}
+            keyboardType="email-address"
+          />
+        </View>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Téléphone</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Entrez le numéro de téléphone"
+            value={passenger.phone}
+            onChangeText={(text) => updatePassengerField(index, 'phone', text)}
+            keyboardType="phone-pad"
+          />
+        </View>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Pièce d'identité (CNI, Passeport)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Entrez le numéro de pièce d'identité"
+            value={passenger.pieceIdentite}
+            onChangeText={(text) => updatePassengerField(index, 'pieceIdentite', text)}
+          />
+        </View>
       </View>
-    );
+    ));
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.keyboardAvoidView}
-      >
-        <ScrollView contentContainerStyle={styles.scrollContainer}>
-          <View style={styles.header}>
-            <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-              <Icon name="arrow-left" size={24} color="#000" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Validation de la réservation</Text>
-            <Image 
-              source={require('../assets/images/GoExpress.png')} 
-              style={styles.headerLogo} 
-            />
-          </View>
+      {/* En-tête */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
+          <Icon name="arrow-left" size={22} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Finaliser la réservation</Text>
+        <View style={styles.backButton} />
+      </View>
 
-          <View style={styles.ticketCard}>
-            <Image 
-              source={require('../assets/images/GoExpress.png')} 
-              style={styles.agencyLogo} 
-            />
-            
-            <View style={styles.routeContainer}>
-              <Text style={styles.cityText}>{voyageData.departure}</Text>
-              <View style={styles.arrowContainer}>
-                <Icon name="arrow-right" size={24} color="#000" />
+      {!userDataLoaded ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007bff" />
+          <Text style={styles.loadingText}>Chargement des informations...</Text>
+        </View>
+      ) : (
+        <>
+          <ScrollView style={styles.scrollView}>
+            {/* Résumé de la réservation */}
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>Résumé de votre voyage</Text>
+
+              <View style={styles.journeyCard}>
+                <Text style={styles.cityName}>{voyageData.departure}</Text>
+                <View style={styles.directionIconContainer}>
+                  <MaterialCommunityIcons name="arrow-right-thick" size={24} color="white" />
+                </View>
+                <Text style={styles.cityName}>{voyageData.destination}</Text>
               </View>
-              <Text style={styles.cityText}>{voyageData.destination}</Text>
-            </View>
-            
-            <View style={styles.ticketDetailsRow}>
-              <Text style={styles.agencyName}>{voyageData.agencyName}</Text>
-              <Text style={styles.seatInfo}>{voyageData.seatCount} place{voyageData.seatCount > 1 ? 's' : ''} {voyageData.seatType}</Text>
-            </View>
-            
-            <View style={styles.ticketDetailsRow}>
-              <Text style={styles.departureTime}>{voyageData.dateDepart} • {voyageData.departureTime}</Text>
-              <Text style={styles.priceText}>Prix total: {voyageData.totalPrice} FCFA</Text>
-            </View>
-          </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Informations des passagers</Text>
-            <Text style={styles.sectionSubtitle}>
-              Remplissez les informations pour chaque passager
-              <Text style={styles.requiredFields}> (champs avec * sont obligatoires)</Text>
-            </Text>
-            
-            {renderSectionToggle()}
-            
-            {showPassengerForm ? (
-              <PassengerForm 
-                passengers={passengers}
-                activePassengerIndex={activePassengerIndex}
-                onPassengerChange={handlePassengerChange}
-                onPassengerSelect={handlePassengerSelect}
-              />
-            ) : (
-              renderPassengerSummary()
-            )}
-          </View>
+              <View style={styles.infoRow}>
+                <MaterialCommunityIcons name="calendar-clock" size={18} color="#555" />
+                <Text style={styles.infoText}>Départ: {voyageData.departureTime}, {new Date(voyageData.dateDepart).toLocaleDateString('fr-FR')}</Text>
+              </View>
 
+              <View style={styles.infoRow}>
+                <MaterialCommunityIcons name="bus" size={18} color="#555" />
+                <Text style={styles.infoText}>Agence: {voyageData.agencyName}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <MaterialCommunityIcons name="seat-passenger" size={18} color="#555" />
+                <Text style={styles.infoText}>
+                  {reservationData.seatType} ({reservationData.selectedSeats.length} siège{reservationData.selectedSeats.length > 1 ? 's' : ''})
+                  : {reservationData.selectedSeats.map(seat => seat.label).join(', ')}
+                </Text>
+              </View>
+
+              <View style={styles.divider} />
+
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Total à payer:</Text>
+                <Text style={styles.totalPrice}>{formatPrice(reservationData.price)}</Text>
+              </View>
+            </View>
+
+            {/* Formulaire des informations des passagers */}
+            {renderPassengerForms()}
+
+            {/* Méthodes de paiement */}
+            <View style={styles.paymentMethodCard}>
+              <Text style={styles.paymentTitle}>Méthode de paiement</Text>
+              
+              <View style={styles.paymentOption}>
+                <MaterialCommunityIcons name="cash" size={24} color="#007bff" />
+                <Text style={styles.paymentOptionText}>Paiement à l'agence</Text>
+                <MaterialCommunityIcons name="check-circle" size={20} color="#007bff" />
+              </View>
+              
+              <Text style={styles.paymentInfo}>
+                Vous payerez directement à l'agence avant le départ. Votre place est réservée pendant 24h.
+              </Text>
+            </View>
+          </ScrollView>
+
+          {/* Bouton de validation */}
           <TouchableOpacity 
-            style={[styles.confirmButton, !formCompleted && styles.disabledConfirmButton]}
-            onPress={handleSubmitReservation}
-            disabled={loading || !formCompleted}
+            style={styles.payButton}
+            onPress={handlePayment}
+            disabled={loading}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <>
-                <Text style={styles.confirmButtonText}>Confirmer la réservation</Text>
-                <Icon name="check" size={20} color="#fff" style={styles.confirmIcon} />
-              </>
+              <Text style={styles.payButtonText}>Confirmer la réservation</Text>
             )}
           </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </>
+      )}
     </SafeAreaView>
   );
 };
@@ -405,229 +406,164 @@ const PaymentScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
-  },
-  keyboardAvoidView: {
-    flex: 1,
-  },
-  scrollContainer: {
-    padding: 16,
-    paddingBottom: 30,
+    backgroundColor: '#f8f8f8',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
-    paddingVertical: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 15,
+    backgroundColor: '#fff',
+    elevation: 2,
   },
   backButton: {
-    padding: 8,
+    padding: 5,
+    width: 32,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
-  headerLogo: {
-    width: 30,
-    height: 30,
-    resizeMode: 'contain',
+  scrollView: {
+    flex: 1,
+    paddingHorizontal: 15,
+    paddingTop: 10,
   },
-  ticketCard: {
-    backgroundColor: '#3B82F6',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  agencyLogo: {
-    width: 40,
-    height: 40,
-    resizeMode: 'contain',
-    alignSelf: 'center',
+  summaryCard: {
     backgroundColor: '#fff',
-    borderRadius: 20,
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+    elevation: 2,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
     marginBottom: 10,
   },
-  routeContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  cityText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  arrowContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 5,
-  },
-  ticketDetailsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 5,
-  },
-  agencyName: {
-    fontSize: 16,
-    color: '#fff',
-  },
-  seatInfo: {
-    fontSize: 14,
-    color: '#fff',
-  },
-  departureTime: {
-    fontSize: 14,
-    color: '#fff',
-  },
-  priceText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  section: {
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 5,
-    color: '#000',
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: '#64748B',
-    marginBottom: 15,
-  },
-  requiredFields: {
-    fontStyle: 'italic',
-    fontSize: 13,
-    color: '#94A3B8',
-  },
-  sectionToggleContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 8,
-    marginBottom: 15,
-    padding: 4,
-  },
-  sectionToggleButton: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: 6,
+  journeyCard: {
     flexDirection: 'row',
     justifyContent: 'center',
-  },
-  activeSectionToggle: {
-    backgroundColor: '#2563EB',
-  },
-  sectionToggleText: {
-    fontWeight: '500',
-    color: '#64748B',
-  },
-  activeSectionToggleText: {
-    color: '#fff',
-  },
-  disabledSectionToggleText: {
-    color: '#A1A1AA',
-  },
-  lockIcon: {
-    marginLeft: 5,
-  },
-  passengerSummaryContainer: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  passengerSummaryTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#334155',
-    marginBottom: 12,
-  },
-  passengerSummaryCard: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    alignItems: 'center',
+    marginVertical: 10,
+    backgroundColor: '#007bff',
     padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderRadius: 8,
   },
-  passengerSummaryHeader: {
+  cityName: {
+    fontSize: 16,
+    color: 'white',
+    fontWeight: 'bold',
+    marginHorizontal: 10,
+  },
+  directionIconContainer: {
+    backgroundColor: '#0056b3',
+    padding: 5,
+    borderRadius: 5,
+  },
+  infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    marginVertical: 5,
   },
-  passengerSummaryName: {
-    flex: 1,
+  infoText: {
     fontSize: 14,
-    fontWeight: '500',
+    color: '#333',
     marginLeft: 8,
   },
-  passengerSummaryDetails: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  divider: {
+    height: 1,
+    backgroundColor: '#eee',
+    marginVertical: 12,
   },
-  passengerSummaryItem: {
-    width: '50%',
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  totalLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  totalPrice: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#007bff',
+  },
+  formCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+    elevation: 2,
+  },
+  formTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  inputContainer: {
+    marginBottom: 12,
+  },
+  inputLabel: {
+    fontSize: 14,
+    color: '#555',
     marginBottom: 5,
   },
-  passengerSummaryLabel: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  passengerSummaryValue: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#334155',
-  },
-  editAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 10,
-    marginTop: 10,
-  },
-  editAllButtonText: {
-    color: '#2563EB',
-    fontWeight: '500',
-    marginRight: 5,
-  },
-  confirmButton: {
-    backgroundColor: '#2563EB',
+  input: {
+    backgroundColor: '#f5f5f5',
     borderRadius: 8,
+    padding: 10,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  paymentMethodCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
     padding: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    marginTop: 10,
+    marginBottom: 15,
+    elevation: 2,
   },
-  disabledConfirmButton: {
-    backgroundColor: '#A1A1AA',
-  },
-  confirmButtonText: {
-    color: '#fff',
-    fontWeight: '600',
+  paymentTitle: {
     fontSize: 16,
-    marginRight: 10,
+    fontWeight: 'bold',
+    marginBottom: 10,
   },
-  confirmIcon: {
-    marginLeft: 5,
+  paymentOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f8ff',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
   },
+  paymentOptionText: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  paymentInfo: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    paddingHorizontal: 5,
+  },
+  payButton: {
+    backgroundColor: '#007bff',
+    padding: 15,
+    margin: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  payButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  }
 });
 
 export default PaymentScreen;
