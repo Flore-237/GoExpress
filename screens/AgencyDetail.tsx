@@ -115,30 +115,48 @@ const AgencyDetailScreen = ({ route, navigation }) => {
   };
 
   const getImageSource = (uri, type = 'banner') => {
-    if (uri && uri.startsWith('http')) {
-      return { uri };
-    }
-    
-    const agencyNameLower = agency.name ? agency.name.toLowerCase() : '';
-    
-    if (agencyNameLower.includes('buca')) {
-      return type === 'logo' 
-        ? require('../assets/images/BucaLogo.jpg')
-        : require('../assets/images/BucaVoyage.jpg');
-    } else if (agencyNameLower.includes('generale') || agencyNameLower.includes('générale')) {
-      return type === 'logo'
-        ? require('../assets/images/generaleLogo.jpg')
-        : require('../assets/images/GeneraleExpress.png');
-    } else if (agencyNameLower.includes('touristique')) {
-      return type === 'logo'
-        ? require('../assets/images/trouristiqueLogo.jpg')
-        : require('../assets/images/touristique.jpg');
-    }
-    
+  if (uri && uri.startsWith('http')) {
+    return { uri };
+  }
+  
+  const agencyNameLower = agency.name ? agency.name.toLowerCase() : '';
+  
+  // BUCA
+  if (agencyNameLower.includes('buca')) {
+    return type === 'logo' 
+      ? require('../assets/images/BucaLogo.jpg')
+      : require('../assets/images/BucaVoyage.jpg');
+  } 
+  // GENERALE 
+  else if (agencyNameLower.includes('generale') || 
+           agencyNameLower.includes('générale') ||
+           agencyNameLower.includes('general') ||
+           agencyNameLower.includes('géneral')) {
     return type === 'logo'
-      ? require('../assets/images/GoExpress.png')
-      : require('../assets/images/busFondBon.jpeg');
-  };
+      ? require('../assets/images/generaleLogo.jpg')
+      : require('../assets/images/GeneraleExpress.png');
+  } 
+  // TOURISTIQUE
+  else if (agencyNameLower.includes('touristique') || 
+           agencyNameLower.includes('tourist')) {
+    return type === 'logo'
+      ? require('../assets/images/trouristiqueLogo.jpg')
+      : require('../assets/images/touristique.jpg');
+  }
+  // TRESOR
+  else if (agencyNameLower.includes('tresor') || 
+           agencyNameLower.includes('trésor')) {
+    return type === 'logo'
+      ? require('../assets/images/logo.png')  // Utilise logo.png générique ou créez tresorLogo.jpg
+      : require('../assets/images/TresorVoyage.jpeg');
+  }
+  
+  // Images par défaut
+  return type === 'logo'
+    ? require('../assets/images/GoExpress.png')
+    : require('../assets/images/busFondBon.jpeg');
+};
+
 
   const formatDate = (date) => {
     if (!date) return 'N/A';

@@ -7,6 +7,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer } from '@react-navigation/native';
 import Feather from 'react-native-vector-icons/Feather';
 
+
 // Import des écrans
 import HomeScreen from './screens/Home';
 import AgencyDetail from './screens/AgencyDetail';
@@ -25,6 +26,8 @@ import FeaturesScreen from './screens/FutureScreen';
 import FeaturesScreen3 from './screens/FutureScreen3';
 import LoginScreen from './screens/Login';
 import RegistrationScreen from './screens/singUp';
+import ReservationScreen from './screens/Reservations';
+
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -51,6 +54,8 @@ export const ROUTES = {
   DETAIL_RESERVATION: 'DetailReservation',
   MAIN_TABS: 'MainTabs',
   AUTH: 'Auth',
+  RESERVATION_SCREEN: 'ReservationScreen',
+
 };
 
 function AuthNavigator({ setIsLoggedIn }) {
@@ -92,6 +97,8 @@ function MainStack() {
       <Stack.Screen name={ROUTES.SEAT_SELECTION} component={SeatSelection} />
       <Stack.Screen name={ROUTES.PAYMENT} component={Payment} />
       <Stack.Screen name={ROUTES.TICKET} component={Tickets} />
+      <Stack.Screen name={ROUTES.RESERVATION_SCREEN} component={ReservationScreen} />
+     
     </Stack.Navigator>
   );
 }
@@ -157,7 +164,6 @@ export default function App() {
       try {
         const onboarded = await AsyncStorage.getItem('hasOnboarded');
         const authToken = await AsyncStorage.getItem('authToken');
-
         setHasOnboarded(onboarded === 'true');
         setIsLoggedIn(!!authToken);
       } catch (error) {

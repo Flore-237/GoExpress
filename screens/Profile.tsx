@@ -1,780 +1,729 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TouchableOpacity,
-  ScrollView,
-  TextInput,
   Image,
-  ActivityIndicator,
+  StyleSheet,
+  ScrollView,
   Alert,
-  KeyboardAvoidingView,
+  ActivityIndicator,
+  RefreshControl,
+  Dimensions,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import Icon from 'react-native-vector-icons/Feather';
-import firestore from '@react-native-firebase/firestore';
-import auth from '@react-native-firebase/auth';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { auth, db } from '../screens/firebase';
+import { doc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Animatable from 'react-native-animatable';
-import * as ImagePicker from 'react-native-image-picker';
-import axios from 'axios';
 import { ROUTES } from '../App';
 
-const ProfileScreen = () => {
+const { width, height } = Dimensions.get('window');
+
+const ProfileScreen = ({ setIsLoggedIn }) => {
   const navigation = useNavigation();
-  const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [profileImage, setProfileImage] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  
-  // État pour les champs modifiables
-  const [editedUser, setEditedUser] = useState({
-    firstName: '',
-    lastName: '',
-    phone: '',
-    email: '',
+  const [refreshing, setRefreshing] = useState(false);
+  const [statistics, setStatistics] = useState({
+    totalOrders: 0,
+    totalSpent: 0,
+    loyaltyPoints: 0
   });
 
-  // Récupérer les informations de l'utilisateur
-  useEffect(() => {
-    const fetchUserData = async () => {
-      try {
-        setIsLoading(true);
-        const currentUser = auth().currentUser;
-        
-        if (!currentUser) {
-          console.log('Aucun utilisateur connecté');
-          navigation.navigate(ROUTES.AUTH);
-          return;
-        }
-        
-        const userDoc = await firestore()
-          .collection('users')
-          .doc(currentUser.uid)
-          .get();
-          
-        if (userDoc.exists) {
-          const userData = userDoc.data();
-          console.log('Données utilisateur récupérées:', userData);
-          setUser(userData);
-          setProfileImage(userData.profileImage || null);
-          setEditedUser({
-            firstName: userData.firstName || '',
-            lastName: userData.lastName || '',
-            phone: userData.phone || '',
-            email: userData.email || '',
-          });
-        } else {
-          console.log('Document utilisateur non trouvé');
-          // Si l'utilisateur existe dans Auth mais pas dans Firestore
-          const currentUserAuth = auth().currentUser;
-          // On crée un profil minimal avec les infos disponibles
-          const minimalUserData = {
-            uid: currentUser.uid,
-            email: currentUser.email,
-            firstName: currentUser.displayName ? currentUser.displayName.split(' ')[0] : '',
-            lastName: currentUser.displayName ? currentUser.displayName.split(' ').slice(1).join(' ') : '',
-            fullName: currentUser.displayName || '',
-            phone: '',
-            createdAt: new Date().toISOString(),
-            status: 'active',
-            role: 'client',
-          };
-          
-          // Créer le document utilisateur dans Firestore
-          await firestore()
-            .collection('users')
-            .doc(currentUser.uid)
-            .set(minimalUserData);
-            
-          setUser(minimalUserData);
-          setEditedUser({
-            firstName: minimalUserData.firstName || '',
-            lastName: minimalUserData.lastName || '',
-            phone: '',
-            email: currentUser.email || '',
-          });
-        }
-      } catch (error) {
-        console.error('Erreur lors de la récupération des données utilisateur:', error);
-        Alert.alert('Erreur', 'Impossible de charger votre profil');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchUserData();
-  }, [navigation]);
-
-  // Sélectionner une image de profil depuis la galerie
-  const selectProfileImage = () => {
-    const options = {
-      title: 'Sélectionner une photo de profil',
-      storageOptions: {
-        skipBackup: true,
-        path: 'images',
-      },
-      mediaType: 'photo',
-      includeBase64: false,
-    };
-
-    ImagePicker.launchImageLibrary(options, (response) => {
-      if (response.didCancel) {
-        console.log('Sélection d\'image annulée');
-      } else if (response.errorCode) {
-        console.error('ImagePicker Error:', response.errorMessage);
-        Alert.alert('Erreur', 'Impossible de sélectionner cette image');
-      } else if (response.assets && response.assets.length > 0) {
-        const source = { uri: response.assets[0].uri };
-        uploadImage(source.uri);
-      }
-    });
-  };
-
-  // Téléverser l'image vers Cloudinary
-  const uploadImage = async (uri) => {
-    const currentUser = auth().currentUser;
-    if (!currentUser) return;
-
-    setUploading(true);
-
+  // Fonction pour récupérer les données utilisateur depuis AsyncStorage
+  const getUserDataFromStorage = async () => {
     try {
-      const data = new FormData();
-      const fileName = uri.split('/').pop();
-
-      data.append('file', {
-        uri,
-        type: 'image/jpeg',
-        name: fileName,
-      });
-
-      data.append('upload_preset', 'Mes images');
-      data.append('cloud_name', 'dk97bi6xf');
+      const keys = [
+        'userId', 'userEmail', 'userFirstName', 'userLastName', 
+        'userFullName', 'userPhone', 'userRole', 'userStatus', 
+        'userProfileImage', 'userCreatedAt'
+      ];
       
-      const res = await axios.post('https://api.cloudinary.com/v1_1/dk97bi6xf/image/upload', data, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+      const values = await AsyncStorage.multiGet(keys);
+      const userData = {};
+      
+      values.forEach(([key, value]) => {
+        const cleanKey = key.replace('user', '').toLowerCase();
+        userData[cleanKey] = value;
       });
 
-      const imageUrl = res.data.secure_url;
-
-      // Mettre à jour Firestore avec l'URL Cloudinary
-      await firestore().collection('users').doc(currentUser.uid).update({
-        profileImage: imageUrl,
-        updatedAt: firestore.FieldValue.serverTimestamp(),
-      });
-
-      setProfileImage(imageUrl);
-      Alert.alert('Succès', 'Photo de profil mise à jour');
-
+      return userData;
     } catch (error) {
-      console.error('Erreur Cloudinary:', error);
-      Alert.alert('Erreur', 'Téléversement échoué');
-    } finally {
-      setUploading(false);
+      console.error('Erreur lors de la récupération des données locales:', error);
+      return null;
     }
   };
 
-  // Mettre à jour les informations de l'utilisateur
-  const handleUpdateProfile = async () => {
-    if (!validateForm()) return;
+  // Fonction pour récupérer les données depuis Firestore
+  const getUserDataFromFirestore = async (userId) => {
+    try {
+      const userDocRef = doc(db, 'users', userId);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (userDocSnap.exists()) {
+        const userData = userDocSnap.data();
+        
+        // Mettre à jour les données locales
+        await AsyncStorage.multiSet([
+          ['userEmail', userData.email || ''],
+          ['userFirstName', userData.firstName || ''],
+          ['userLastName', userData.lastName || ''],
+          ['userFullName', userData.fullName || ''],
+          ['userPhone', userData.phone || ''],
+          ['userRole', userData.role || 'client'],
+          ['userStatus', userData.status || 'active'],
+          ['userProfileImage', userData.profileImage || ''],
+          ['userCreatedAt', userData.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()],
+        ]);
+
+        return userData;
+      }
+      return null;
+    } catch (error) {
+      console.error('Erreur lors de la récupération des données Firestore:', error);
+      return null;
+    }
+  };
+
+  // Fonction principale pour charger le profil utilisateur
+  const loadUserProfile = async (showLoader = true) => {
+    if (showLoader) setIsLoading(true);
     
     try {
-      setIsSaving(true);
-      const currentUser = auth().currentUser;
+      // Récupérer d'abord les données locales
+      const localData = await getUserDataFromStorage();
       
-      if (!currentUser) {
-        Alert.alert('Erreur', 'Vous devez être connecté pour mettre à jour votre profil');
-        return;
-      }
-      
-      // Générer le nom complet
-      const fullName = `${editedUser.firstName} ${editedUser.lastName}`;
-      
-      // Mise à jour dans Firestore
-      await firestore()
-        .collection('users')
-        .doc(currentUser.uid)
-        .update({
-          firstName: editedUser.firstName,
-          lastName: editedUser.lastName,
-          fullName: fullName,
-          phone: editedUser.phone,
-          // Ne pas mettre à jour l'email dans Firestore si c'est le même
-          ...(editedUser.email !== user.email && { email: editedUser.email }),
-          updatedAt: firestore.FieldValue.serverTimestamp(),
+      if (localData && localData.id) {
+        // Afficher les données locales immédiatement
+        setUserProfile({
+          id: localData.id,
+          email: localData.email,
+          firstName: localData.firstname,
+          lastName: localData.lastname,
+          fullName: localData.fullname,
+          phone: localData.phone,
+          role: localData.role,
+          status: localData.status,
+          profileImage: localData.profileimage,
+          createdAt: localData.createdat,
         });
-      
-      // Si l'email a changé, mise à jour dans Authentication
-      if (editedUser.email !== user.email) {
-        await currentUser.updateEmail(editedUser.email);
-      }
-      
-      // Mettre à jour l'état local
-      setUser({
-        ...user,
-        firstName: editedUser.firstName,
-        lastName: editedUser.lastName,
-        fullName: fullName,
-        phone: editedUser.phone,
-        email: editedUser.email,
-      });
-      
-      Alert.alert('Succès', 'Votre profil a été mis à jour avec succès');
-      setIsEditing(false);
-    } catch (error) {
-      console.error('Erreur lors de la mise à jour du profil:', error);
-      
-      if (error.code === 'auth/requires-recent-login') {
-        Alert.alert(
-          'Session expirée',
-          'Veuillez vous reconnecter pour modifier votre email',
-          [
-            {
-              text: 'Se reconnecter',
-              onPress: handleLogout,
-            },
-            {
-              text: 'Annuler',
-              style: 'cancel',
-            },
-          ]
-        );
+
+        // Puis récupérer les données à jour depuis Firestore
+        const firestoreData = await getUserDataFromFirestore(localData.id);
+        
+        if (firestoreData) {
+          setUserProfile({
+            id: firestoreData.uid || firestoreData.id,
+            email: firestoreData.email,
+            firstName: firestoreData.firstName,
+            lastName: firestoreData.lastName,
+            fullName: firestoreData.fullName,
+            phone: firestoreData.phone,
+            role: firestoreData.role,
+            status: firestoreData.status,
+            profileImage: firestoreData.profileImage,
+            createdAt: firestoreData.createdAt?.toDate?.()?.toISOString() || firestoreData.createdAt,
+          });
+
+          // Mettre à jour les statistiques si disponibles
+          if (firestoreData.statistics) {
+            setStatistics(firestoreData.statistics);
+          }
+        }
       } else {
-        Alert.alert('Erreur', 'Impossible de mettre à jour votre profil');
+        // Si pas de données locales, essayer de récupérer depuis Firebase Auth
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          const firestoreData = await getUserDataFromFirestore(currentUser.uid);
+          if (firestoreData) {
+            setUserProfile({
+              id: firestoreData.uid || firestoreData.id,
+              email: firestoreData.email,
+              firstName: firestoreData.firstName,
+              lastName: firestoreData.lastName,
+              fullName: firestoreData.fullName,
+              phone: firestoreData.phone,
+              role: firestoreData.role,
+              status: firestoreData.status,
+              profileImage: firestoreData.profileImage,
+              createdAt: firestoreData.createdAt?.toDate?.()?.toISOString() || firestoreData.createdAt,
+            });
+          }
+        }
       }
+    } catch (error) {
+      console.error('Erreur lors du chargement du profil:', error);
+      Alert.alert('Erreur', 'Impossible de charger les informations du profil.');
     } finally {
-      setIsSaving(false);
+      setIsLoading(false);
+      setRefreshing(false);
     }
   };
 
-  // Validation du formulaire
-  const validateForm = () => {
-    if (!editedUser.firstName.trim()) {
-      Alert.alert('Erreur', 'Le prénom est requis');
-      return false;
-    }
-    
-    if (!editedUser.lastName.trim()) {
-      Alert.alert('Erreur', 'Le nom est requis');
-      return false;
-    }
-    
-    if (!editedUser.phone.trim()) {
-      Alert.alert('Erreur', 'Le numéro de téléphone est requis');
-      return false;
-    }
-    
-    if (!editedUser.email.trim() || !/\S+@\S+\.\S+/.test(editedUser.email)) {
-      Alert.alert('Erreur', 'Email invalide');
-      return false;
-    }
-    
-    return true;
-  };
+  // Fonction de rafraîchissement
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadUserProfile(false);
+  }, []);
 
-  // Déconnexion - CORRIGÉ
-  const handleLogout = async () => {
+  // Fonction de déconnexion
+  const handleLogout = () => {
     Alert.alert(
       'Déconnexion',
       'Êtes-vous sûr de vouloir vous déconnecter ?',
       [
-        {
-          text: 'Annuler',
-          style: 'cancel',
-        },
+        { text: 'Annuler', style: 'cancel' },
         {
           text: 'Déconnexion',
           style: 'destructive',
           onPress: async () => {
             try {
-              // Suppression du token dans tous les cas
-              await AsyncStorage.removeItem('authToken');
+              setIsLoading(true);
               
-              // Vérification de l'existence d'un utilisateur avant déconnexion
-              const currentUser = auth().currentUser;
+              // Déconnexion Firebase
+              await auth.signOut();
               
-              if (currentUser) {
-                // Déconnexion seulement si un utilisateur est connecté
-                await auth().signOut();
-                console.log('Déconnexion réussie');
-              } else {
-                console.log('Aucun utilisateur connecté à déconnecter');
+              // Nettoyer AsyncStorage
+              await AsyncStorage.multiRemove([
+                'authToken', 'userId', 'userEmail', 'userFirstName', 
+                'userLastName', 'userFullName', 'userPhone', 'userRole', 
+                'userStatus', 'userProfileImage', 'userCreatedAt'
+              ]);
+              
+              // Mettre à jour l'état d'authentification
+              if (setIsLoggedIn) {
+                setIsLoggedIn(false);
               }
               
-              // Redirection vers l'écran de connexion dans tous les cas
+              // Redirection vers la page de connexion
               navigation.reset({
                 index: 0,
-                routes: [{ name: ROUTES.AUTH }],
+                routes: [{ name: ROUTES.LOGIN }],
               });
+              
             } catch (error) {
               console.error('Erreur lors de la déconnexion:', error);
-              
-              // En cas d'erreur, on redirige quand même vers l'écran de connexion
-              Alert.alert('Remarque', 'Un problème est survenu mais vous allez être redirigé vers l\'écran de connexion.');
-              setTimeout(() => {
-                navigation.reset({
-                  index: 0,
-                  routes: [{ name: ROUTES.AUTH }],
-                });
-              }, 1000);
+              Alert.alert('Erreur', 'Impossible de se déconnecter. Réessayez.');
+            } finally {
+              setIsLoading(false);
             }
-          },
-        },
+          }
+        }
       ]
     );
   };
 
-  // Navigation vers l'écran des réservations
-  const navigateToReservations = () => {
-    navigation.navigate(ROUTES.RESERVATIONS);
+  // Fonction pour formater la date
+  const formatDate = (dateString) => {
+    if (!dateString) return 'Date inconnue';
+    
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return 'Date inconnue';
+    }
   };
 
-  if (isLoading) {
+  // Charger le profil au montage du composant
+  useFocusEffect(
+    useCallback(() => {
+      loadUserProfile();
+    }, [])
+  );
+
+  // Fonction pour naviguer vers l'édition du profil
+  const navigateToEditProfile = () => {
+    navigation.navigate('EditProfile', { userProfile });
+  };
+
+  // Composant de chargement
+  if (isLoading && !userProfile) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#5e17eb" />
-      </View>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007aff" />
+          <Text style={styles.loadingText}>Chargement du profil...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Composant d'erreur si pas de données utilisateur
+  if (!userProfile) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Icon name="person-circle-outline" size={80} color="#8e8e93" />
+          <Text style={styles.errorTitle}>Profil non trouvé</Text>
+          <Text style={styles.errorSubtitle}>
+            Impossible de charger les informations du profil
+          </Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => loadUserProfile()}>
+            <Text style={styles.retryButtonText}>Réessayer</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1 }}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
+        {/* Header */}
+        <Animatable.View animation="fadeInDown" duration={800} style={styles.header}>
           <Text style={styles.headerTitle}>Mon Profil</Text>
-          {!isEditing && (
-            <TouchableOpacity 
-              style={styles.editButton} 
-              onPress={() => setIsEditing(true)}
-            >
-              <Icon name="edit-2" size={20} color="#5e17eb" />
-              <Text style={styles.editButtonText}>Modifier</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        
-        <ScrollView style={styles.scrollView}>
-          <Animatable.View animation="fadeIn" duration={800} style={styles.profileContainer}>
-            <View style={styles.avatarContainer}>
-              <TouchableOpacity 
-                style={styles.avatarWrapper}
-                onPress={selectProfileImage}
-                disabled={isEditing || uploading}
-              >
-                {profileImage ? (
-                  <Image source={{ uri: profileImage }} style={styles.avatarImage} />
-                ) : (
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                      {user && user.firstName && user.lastName
-                        ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`
-                        : '?'}
-                    </Text>
-                  </View>
-                )}
-                {uploading && (
-                  <View style={styles.uploadingOverlay}>
-                    <ActivityIndicator size="small" color="#fff" />
-                  </View>
-                )}
-                {!isEditing && !uploading && (
-                  <View style={styles.editAvatarIcon}>
-                    <Icon name="camera" size={16} color="#fff" />
-                  </View>
-                )}
-              </TouchableOpacity>
-              {!isEditing && (
-                <Text style={styles.userName}>
-                  {user?.fullName || `${user?.firstName || ''} ${user?.lastName || ''}`}
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+            <Icon name="log-out-outline" size={24} color="#ff3b30" />
+          </TouchableOpacity>
+        </Animatable.View>
+
+        {/* Carte de profil principal */}
+        <Animatable.View animation="fadeInUp" duration={800} delay={200} style={styles.profileCard}>
+          <View style={styles.avatarContainer}>
+            {userProfile.profileImage ? (
+              <Image
+                source={{ uri: userProfile.profileImage }}
+                style={styles.avatar}
+              />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarText}>
+                  {userProfile.firstName?.charAt(0)?.toUpperCase() || '?'}
+                  {userProfile.lastName?.charAt(0)?.toUpperCase() || ''}
                 </Text>
-              )}
-            </View>
-            
-            <View style={styles.infoContainer}>
-              {isEditing ? (
-                // Mode édition
-                <>
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Prénom</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editedUser.firstName}
-                      onChangeText={(text) => setEditedUser({ ...editedUser, firstName: text })}
-                      placeholder="Votre prénom"
-                    />
-                  </View>
-                  
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Nom</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editedUser.lastName}
-                      onChangeText={(text) => setEditedUser({ ...editedUser, lastName: text })}
-                      placeholder="Votre nom"
-                    />
-                  </View>
-                  
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Téléphone</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editedUser.phone}
-                      onChangeText={(text) => setEditedUser({ ...editedUser, phone: text })}
-                      placeholder="Votre numéro de téléphone"
-                      keyboardType="phone-pad"
-                    />
-                  </View>
-                  
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Email</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={editedUser.email}
-                      onChangeText={(text) => setEditedUser({ ...editedUser, email: text })}
-                      placeholder="Votre email"
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                    />
-                  </View>
-                  
-                  <View style={styles.buttonGroup}>
-                    <TouchableOpacity
-                      style={styles.cancelButton}
-                      onPress={() => {
-                        setIsEditing(false);
-                        // Réinitialiser les champs édités aux valeurs actuelles
-                        setEditedUser({
-                          firstName: user?.firstName || '',
-                          lastName: user?.lastName || '',
-                          phone: user?.phone || '',
-                          email: user?.email || '',
-                        });
-                      }}
-                      disabled={isSaving}
-                    >
-                      <Text style={styles.cancelButtonText}>Annuler</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={styles.saveButton}
-                      onPress={handleUpdateProfile}
-                      disabled={isSaving}
-                    >
-                      {isSaving ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <Text style={styles.saveButtonText}>Enregistrer</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </>
-              ) : (
-                // Mode affichage
-                <>
-                  <View style={styles.infoItem}>
-                    <Icon name="user" size={20} color="#5e17eb" style={styles.infoIcon} />
-                    <View>
-                      <Text style={styles.infoLabel}>Nom complet</Text>
-                      <Text style={styles.infoValue}>
-                        {user?.fullName || `${user?.firstName || ''} ${user?.lastName || ''}`}
-                      </Text>
-                    </View>
-                  </View>
-                  
-                  <View style={styles.infoItem}>
-                    <Icon name="phone" size={20} color="#5e17eb" style={styles.infoIcon} />
-                    <View>
-                      <Text style={styles.infoLabel}>Téléphone</Text>
-                      <Text style={styles.infoValue}>{user?.phone || 'Non renseigné'}</Text>
-                    </View>
-                  </View>
-                  
-                  <View style={styles.infoItem}>
-                    <Icon name="mail" size={20} color="#5e17eb" style={styles.infoIcon} />
-                    <View>
-                      <Text style={styles.infoLabel}>Email</Text>
-                      <Text style={styles.infoValue}>{user?.email || 'Non renseigné'}</Text>
-                    </View>
-                  </View>
-                  
-                  <View style={styles.infoItem}>
-                    <Icon name="shield" size={20} color="#5e17eb" style={styles.infoIcon} />
-                    <View>
-                      <Text style={styles.infoLabel}>Statut</Text>
-                      <Text style={[
-                        styles.infoValue, 
-                        { color: user?.status === 'active' ? 'green' : 'orange' }
-                      ]}>
-                        {user?.status === 'active' ? 'Actif' : 'Inactif'}
-                      </Text>
-                    </View>
-                  </View>
-                </>
-              )}
-            </View>
-            
-            {!isEditing && (
-              <>
-                <TouchableOpacity 
-                  style={styles.menuItem} 
-                  onPress={navigateToReservations}
-                >
-                  <Icon name="calendar" size={22} color="#5e17eb" style={styles.menuIcon} />
-                  <Text style={styles.menuText}>Mes réservations</Text>
-                  <Icon name="chevron-right" size={18} color="#ccc" />
-                </TouchableOpacity>
-                
-                <TouchableOpacity style={styles.menuItem}>
-                  <Icon name="settings" size={22} color="#5e17eb" style={styles.menuIcon} />
-                  <Text style={styles.menuText}>Paramètres</Text>
-                  <Icon name="chevron-right" size={18} color="#ccc" />
-                </TouchableOpacity>
-                
-                <TouchableOpacity style={styles.menuItem}>
-                  <Icon name="help-circle" size={22} color="#5e17eb" style={styles.menuIcon} />
-                  <Text style={styles.menuText}>Aide et Support</Text>
-                  <Icon name="chevron-right" size={18} color="#ccc" />
-                </TouchableOpacity>
-                
-                <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-                  <Icon name="log-out" size={20} color="#ff4444" />
-                  <Text style={styles.logoutText}>Déconnexion</Text>
-                </TouchableOpacity>
-              </>
+              </View>
             )}
-          </Animatable.View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+            <View style={styles.statusBadge}>
+              <View style={[
+                styles.statusDot,
+                { backgroundColor: userProfile.status === 'active' ? '#34c759' : '#ff3b30' }
+              ]} />
+            </View>
+          </View>
+
+          <Text style={styles.fullName}>{userProfile.fullName || 'Nom non défini'}</Text>
+          <Text style={styles.email}>{userProfile.email}</Text>
+          
+          <View style={styles.roleContainer}>
+            <Icon 
+              name={userProfile.role === 'admin' ? 'shield-checkmark' : 'person'} 
+              size={16} 
+              color="#007aff" 
+            />
+            <Text style={styles.roleText}>
+              {userProfile.role === 'admin' ? 'Administrateur' : 'Client'}
+            </Text>
+          </View>
+
+          <TouchableOpacity style={styles.editButton} onPress={navigateToEditProfile}>
+            <Icon name="create-outline" size={20} color="#007aff" />
+            <Text style={styles.editButtonText}>Modifier le profil</Text>
+          </TouchableOpacity>
+        </Animatable.View>
+
+        {/* Statistiques */}
+        <Animatable.View animation="fadeInUp" duration={800} delay={400} style={styles.statsContainer}>
+          <Text style={styles.sectionTitle}>Statistiques</Text>
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <Icon name="bag-outline" size={24} color="#007aff" />
+              <Text style={styles.statNumber}>{statistics.totalOrders}</Text>
+              <Text style={styles.statLabel}>Reservations</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Icon name="card-outline" size={24} color="#34c759" />
+              <Text style={styles.statNumber}>{statistics.totalSpent} FCFA</Text>
+              <Text style={styles.statLabel}>Dépensé</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Icon name="star-outline" size={24} color="#ff9500" />
+              <Text style={styles.statNumber}>{statistics.loyaltyPoints}</Text>
+              <Text style={styles.statLabel}>Points</Text>
+            </View>
+          </View>
+        </Animatable.View>
+
+        {/* Informations détaillées */}
+        <Animatable.View animation="fadeInUp" duration={800} delay={600} style={styles.detailsContainer}>
+          <Text style={styles.sectionTitle}>Informations personnelles</Text>
+          
+          <InfoRow 
+            icon="person-outline" 
+            label="Prénom" 
+            value={userProfile.firstName || 'Non défini'} 
+          />
+          <InfoRow 
+            icon="person-outline" 
+            label="Nom" 
+            value={userProfile.lastName || 'Non défini'} 
+          />
+          <InfoRow 
+            icon="call-outline" 
+            label="Téléphone" 
+            value={userProfile.phone || 'Non défini'} 
+          />
+          <InfoRow 
+            icon="mail-outline" 
+            label="Email" 
+            value={userProfile.email} 
+          />
+          <InfoRow 
+            icon="calendar-outline" 
+            label="Membre depuis" 
+            value={formatDate(userProfile.createdAt)} 
+          />
+          <InfoRow 
+            icon="checkmark-circle-outline" 
+            label="Statut" 
+            value={userProfile.status === 'active' ? 'Actif' : 'Inactif'}
+            valueColor={userProfile.status === 'active' ? '#34c759' : '#ff3b30'}
+          />
+        </Animatable.View>
+
+        {/* Actions rapides */}
+        <Animatable.View animation="fadeInUp" duration={800} delay={800} style={styles.actionsContainer}>
+          <Text style={styles.sectionTitle}>Actions rapides</Text>
+          
+          <ActionButton
+            icon="settings-outline"
+            title="Paramètres"
+            subtitle="Gérer les préférences"
+            onPress={() => navigation.navigate('Settings')}
+          />
+        </Animatable.View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
 
+// Composant pour afficher une ligne d'information
+const InfoRow = ({ icon, label, value, valueColor = '#1d1d1f' }) => (
+  <View style={styles.infoRow}>
+    <View style={styles.infoLeft}>
+      <Icon name={icon} size={20} color="#8e8e93" />
+      <Text style={styles.infoLabel}>{label}</Text>
+    </View>
+    <Text style={[styles.infoValue, { color: valueColor }]}>{value}</Text>
+  </View>
+);
+
+// Composant pour les boutons d'action
+const ActionButton = ({ icon, title, subtitle, onPress }) => (
+  <TouchableOpacity style={styles.actionButton} onPress={onPress} activeOpacity={0.7}>
+    <View style={styles.actionLeft}>
+      <View style={styles.actionIconContainer}>
+        <Icon name={icon} size={22} color="#007aff" />
+      </View>
+      <View style={styles.actionTextContainer}>
+        <Text style={styles.actionTitle}>{title}</Text>
+        <Text style={styles.actionSubtitle}>{subtitle}</Text>
+      </View>
+    </View>
+    <Icon name="chevron-forward" size={20} color="#c7c7cc" />
+  </TouchableOpacity>
+);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f2f2f7',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 30,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#8e8e93',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  errorTitle: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#1d1d1f',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  errorSubtitle: {
+    fontSize: 16,
+    color: '#8e8e93',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#007aff',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eaeaea',
+    paddingVertical: 16,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1d1d1f',
   },
-  editButton: {
-    flexDirection: 'row',
+  logoutButton: {
+    padding: 8,
+  },
+  profileCard: {
+    backgroundColor: '#ffffff',
+    marginHorizontal: 20,
+    borderRadius: 20,
+    padding: 24,
     alignItems: 'center',
-  },
-  editButtonText: {
-    marginLeft: 5,
-    color: '#5e17eb',
-    fontWeight: '500',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  profileContainer: {
-    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+    marginBottom: 20,
   },
   avatarContainer: {
-    alignItems: 'center',
-    marginBottom: 25,
-  },
-  avatarWrapper: {
     position: 'relative',
-    marginBottom: 10,
+    marginBottom: 16,
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#5e17eb',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 4,
+    borderColor: '#f2f2f7',
+  },
+  avatarPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#007aff',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  avatarImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    borderWidth: 4,
+    borderColor: '#f2f2f7',
   },
   avatarText: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 36,
+    fontWeight: '700',
+    color: '#ffffff',
   },
-  editAvatarIcon: {
+  statusBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#5e17eb',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#fff',
-  },
-  uploadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  userName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  infoContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 20,
+    bottom: 4,
+    right: 4,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 4,
   },
-  infoItem: {
+  statusDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  fullName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1d1d1f',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  email: {
+    fontSize: 16,
+    color: '#8e8e93',
+    marginBottom: 12,
+  },
+  roleContainer: {
     flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f2f2f7',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginBottom: 20,
+  },
+  roleText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#007aff',
+    marginLeft: 6,
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f2f2f7',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  editButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#007aff',
+    marginLeft: 8,
+  },
+  statsContainer: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1d1d1f',
+    marginBottom: 16,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statCard: {
+    backgroundColor: '#ffffff',
+    flex: 1,
+    marginHorizontal: 4,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  statNumber: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1d1d1f',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#8e8e93',
+    fontWeight: '500',
+  },
+  detailsContainer: {
+    backgroundColor: '#ffffff',
+    marginHorizontal: 20,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#f2f2f7',
   },
-  infoIcon: {
-    marginRight: 15,
+  infoLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   infoLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 3,
+    fontSize: 16,
+    color: '#8e8e93',
+    marginLeft: 12,
+    fontWeight: '500',
   },
   infoValue: {
     fontSize: 16,
-    color: '#333',
     fontWeight: '500',
+    textAlign: 'right',
+    flex: 1,
   },
-  inputGroup: {
-    marginBottom: 15,
+  actionsContainer: {
+    marginHorizontal: 20,
   },
-  inputLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 5,
-  },
-  input: {
-    backgroundColor: '#f8f9fa',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-  },
-  buttonGroup: {
+  actionButton: {
+    backgroundColor: '#ffffff',
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 10,
-  },
-  cancelButton: {
-    flex: 1,
-    padding: 15,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-  },
-  saveButton: {
-    flex: 1,
-    padding: 15,
-    backgroundColor: '#5e17eb',
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  saveButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#fff',
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
     padding: 16,
-    borderRadius: 10,
-    marginBottom: 10,
+    borderRadius: 12,
+    marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  menuIcon: {
-    marginRight: 15,
-  },
-  menuText: {
-    flex: 1,
-    fontSize: 16,
-    color: '#333',
-  },
-  logoutButton: {
+  actionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 10,
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: '#ff4444',
   },
-  logoutText: {
-    marginLeft: 10,
+  actionIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f2f2f7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  actionTextContainer: {
+    flex: 1,
+  },
+  actionTitle: {
     fontSize: 16,
-    color: '#ff4444',
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#1d1d1f',
+    marginBottom: 2,
+  },
+  actionSubtitle: {
+    fontSize: 14,
+    color: '#8e8e93',
   },
 });
 
 export default ProfileScreen;
-
-
-
-
-

@@ -11,6 +11,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -18,86 +19,195 @@ import { useNavigation } from '@react-navigation/native';
 import { auth, db } from '../screens/firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, Timestamp } from 'firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Animatable from 'react-native-animatable';
 import { ROUTES } from '../App';
 
+const { width } = Dimensions.get('window');
+
 const RegistrationScreen = () => {
   const navigation = useNavigation();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    password: '',
+    confirmPassword: '',
+  });
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [errors, setErrors] = useState({});
 
+  // Validation complète du formulaire
   const validateForm = () => {
-    if (!name || !email || !phone || !password || !confirmPassword) {
-      Alert.alert('Erreur', 'Tous les champs sont obligatoires.');
-      return false;
+    const newErrors = {};
+
+    // Validation prénom
+    if (!formData.firstName.trim()) {
+      newErrors.firstName = 'Le prénom est requis';
+    } else if (formData.firstName.trim().length < 2) {
+      newErrors.firstName = 'Le prénom doit contenir au moins 2 caractères';
+    } else if (!/^[a-zA-ZÀ-ÿ\s'-]+$/.test(formData.firstName.trim())) {
+      newErrors.firstName = 'Le prénom ne doit contenir que des lettres';
     }
 
-    if (password !== confirmPassword) {
-      Alert.alert('Erreur', 'Les mots de passe ne correspondent pas.');
-      return false;
+    // Validation nom
+    if (!formData.lastName.trim()) {
+      newErrors.lastName = 'Le nom est requis';
+    } else if (formData.lastName.trim().length < 2) {
+      newErrors.lastName = 'Le nom doit contenir au moins 2 caractères';
+    } else if (!/^[a-zA-ZÀ-ÿ\s'-]+$/.test(formData.lastName.trim())) {
+      newErrors.lastName = 'Le nom ne doit contenir que des lettres';
     }
 
-    if (password.length < 6) {
-      Alert.alert('Erreur', 'Le mot de passe doit avoir au moins 6 caractères.');
-      return false;
+    // Validation email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!formData.email.trim()) {
+      newErrors.email = 'L\'email est requis';
+    } else if (!emailRegex.test(formData.email.trim())) {
+      newErrors.email = 'Format d\'email invalide';
     }
 
-    return true;
+    // Validation téléphone (format camerounais/international)
+    const phoneRegex = /^[0-9]{9,15}$/;
+    const cleanPhone = formData.phone.replace(/[\s-+()]/g, '');
+    if (!formData.phone.trim()) {
+      newErrors.phone = 'Le téléphone est requis';
+    } else if (!phoneRegex.test(cleanPhone)) {
+      newErrors.phone = 'Numéro de téléphone invalide (9-15 chiffres)';
+    }
+
+    // Validation mot de passe renforcée
+    if (!formData.password) {
+      newErrors.password = 'Le mot de passe est requis';
+    } else if (formData.password.length < 8) {
+      newErrors.password = 'Le mot de passe doit contenir au moins 8 caractères';
+    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/.test(formData.password)) {
+      newErrors.password = 'Le mot de passe doit contenir au moins une minuscule, une majuscule, un chiffre et un caractère spécial';
+    }
+
+    // Validation confirmation mot de passe
+    if (!formData.confirmPassword) {
+      newErrors.confirmPassword = 'Veuillez confirmer le mot de passe';
+    } else if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Les mots de passe ne correspondent pas';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
+  // Fonction d'inscription améliorée
   const handleRegistration = async () => {
     if (!validateForm()) return;
 
     setIsLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      // Création du compte Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(
+        auth, 
+        formData.email.trim().toLowerCase(), 
+        formData.password
+      );
       const user = userCredential.user;
 
-      // Extraire prénom et nom
-      const nameParts = name.trim().split(' ');
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
-
+      // Préparation des données utilisateur pour Firestore
       const userData = {
         uid: user.uid,
         id: user.uid,
-        email,
-        fullName: name.trim(),
-        firstName,
-        lastName,
-        phone,
+        email: formData.email.trim().toLowerCase(),
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        fullName: `${formData.firstName.trim()} ${formData.lastName.trim()}`,
+        phone: formData.phone.trim(),
         role: 'client',
         status: 'active',
+        profileImage: null,
         createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+        // Informations supplémentaires
+        isEmailVerified: false,
+        isPhoneVerified: false,
+        lastLoginAt: null,
+        preferences: {
+          language: 'fr',
+          notifications: true,
+          theme: 'light'
+        },
+        statistics: {
+          totalOrders: 0,
+          totalSpent: 0,
+          loyaltyPoints: 0
+        }
       };
 
+      // Sauvegarde dans Firestore
       await setDoc(doc(db, 'users', user.uid), userData);
-      await AsyncStorage.setItem('authToken', user.uid);
-      await AsyncStorage.setItem('userId', user.uid);
 
-      Alert.alert('Succès', 'Inscription réussie !');
-      navigation.navigate(ROUTES.MAIN_TABS);
+      // Confirmation et redirection
+      Alert.alert(
+        '🎉 Inscription réussie !',
+        `Bienvenue ${formData.firstName} ! Votre compte a été créé avec succès. Vous allez être redirigé vers la page de connexion.`,
+        [
+          {
+            text: 'Continuer',
+            onPress: () => {
+              // Déconnexion pour forcer la connexion via LoginScreen
+              auth.signOut();
+              navigation.navigate(ROUTES.LOGIN, {
+                registrationSuccess: true,
+                userEmail: formData.email.trim().toLowerCase()
+              });
+            }
+          }
+        ]
+      );
+
     } catch (error) {
-      let message = "Erreur lors de l'inscription.";
+      console.error("Erreur d'inscription:", error);
+      let message = "Une erreur est survenue lors de l'inscription.";
 
-      if (error.code === 'auth/email-already-in-use') {
-        message = 'Cet email est déjà utilisé.';
-      } else if (error.code === 'auth/invalid-email') {
-        message = 'Email invalide.';
-      } else if (error.code === 'auth/weak-password') {
-        message = 'Le mot de passe doit contenir au moins 6 caractères.';
+      switch (error.code) {
+        case 'auth/email-already-in-use':
+          message = 'Cette adresse email est déjà utilisée. Essayez de vous connecter ou utilisez une autre adresse.';
+          break;
+        case 'auth/invalid-email':
+          message = 'Format d\'adresse email invalide.';
+          break;
+        case 'auth/weak-password':
+          message = 'Le mot de passe est trop faible. Utilisez au moins 8 caractères avec des majuscules, minuscules, chiffres et caractères spéciaux.';
+          break;
+        case 'auth/network-request-failed':
+          message = 'Erreur de connexion. Vérifiez votre connexion internet et réessayez.';
+          break;
+        case 'auth/operation-not-allowed':
+          message = 'L\'inscription par email/mot de passe n\'est pas activée.';
+          break;
+        default:
+          message = `Erreur technique: ${error.message}`;
       }
 
-      console.error("Erreur d'inscription:", error);
-      Alert.alert('Erreur', message);
+      Alert.alert('❌ Erreur d\'inscription', message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Mise à jour des champs avec validation en temps réel
+  const updateFormData = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    
+    // Effacer l'erreur du champ modifié
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: null }));
+    }
+
+    // Validation en temps réel pour certains champs
+    if (field === 'confirmPassword' && formData.password && value) {
+      if (formData.password !== value) {
+        setErrors(prev => ({ ...prev, confirmPassword: 'Les mots de passe ne correspondent pas' }));
+      }
     }
   };
 
@@ -105,96 +215,250 @@ const RegistrationScreen = () => {
     navigation.navigate(ROUTES.LOGIN);
   };
 
+  // Fonction pour vérifier la force du mot de passe
+  const getPasswordStrength = (password) => {
+    if (!password) return { strength: 0, text: '' };
+    
+    let strength = 0;
+    const checks = [
+      password.length >= 8,
+      /[a-z]/.test(password),
+      /[A-Z]/.test(password),
+      /\d/.test(password),
+      /[@$!%*?&]/.test(password)
+    ];
+    
+    strength = checks.filter(Boolean).length;
+    
+    const strengthTexts = [
+      '', 'Très faible', 'Faible', 'Moyen', 'Fort', 'Très fort'
+    ];
+    
+    return { strength, text: strengthTexts[strength] };
+  };
+
+  const passwordStrength = getPasswordStrength(formData.password);
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContainer}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1 }}
+        <ScrollView
+          contentContainerStyle={styles.scrollContainer}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Animatable.View animation="fadeInUp" duration={1000} style={styles.formContainer}>
+          {/* Header avec logo et animation */}
+          <Animatable.View animation="fadeInDown" duration={1000} style={styles.logoContainer}>
             <Image
               source={require('../assets/images/GoExpress.png')}
               style={styles.logo}
               resizeMode="contain"
             />
-            <Text style={styles.title}>Inscription</Text>
+            <Text style={styles.title}>Rejoignez GoExpress</Text>
+            <Text style={styles.subtitle}>Créez votre compte en quelques étapes</Text>
+          </Animatable.View>
 
-            <TextInput
-              style={styles.input}
-              placeholder="Nom complet"
-              value={name}
-              onChangeText={setName}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Email"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Téléphone"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-            />
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="Mot de passe"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                <Icon
-                  name={showPassword ? 'eye-off' : 'eye'}
-                  size={20}
-                  color="gray"
-                  style={styles.icon}
+          {/* Formulaire d'inscription */}
+          <Animatable.View animation="fadeInUp" duration={1000} delay={200} style={styles.formContainer}>
+            {/* Prénom */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Prénom *</Text>
+              <View style={[styles.inputContainer, errors.firstName && styles.inputError]}>
+                <Icon name="person-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Votre prénom"
+                  placeholderTextColor="#c7c7cc"
+                  value={formData.firstName}
+                  onChangeText={(text) => updateFormData('firstName', text)}
+                  autoCapitalize="words"
+                  maxLength={50}
                 />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="Confirmer le mot de passe"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                <Icon
-                  name={showPassword ? 'eye-off' : 'eye'}
-                  size={20}
-                  color="gray"
-                  style={styles.icon}
-                />
-              </TouchableOpacity>
+              </View>
+              {errors.firstName && <Text style={styles.errorText}>{errors.firstName}</Text>}
             </View>
 
-            {isLoading ? (
-              <ActivityIndicator size="large" color="#007bff" />
-            ) : (
-              <TouchableOpacity style={styles.button} onPress={handleRegistration}>
-                <Text style={styles.buttonText}>S'inscrire</Text>
-              </TouchableOpacity>
-            )}
+            {/* Nom */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Nom *</Text>
+              <View style={[styles.inputContainer, errors.lastName && styles.inputError]}>
+                <Icon name="person-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Votre nom"
+                  placeholderTextColor="#c7c7cc"
+                  value={formData.lastName}
+                  onChangeText={(text) => updateFormData('lastName', text)}
+                  autoCapitalize="words"
+                  maxLength={50}
+                />
+              </View>
+              {errors.lastName && <Text style={styles.errorText}>{errors.lastName}</Text>}
+            </View>
 
-            <TouchableOpacity onPress={navigateToLogin}>
-              <Text style={styles.loginLink}>
-                Vous avez déjà un compte ? <Text style={styles.loginText}>Se connecter</Text>
+            {/* Email */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Email *</Text>
+              <View style={[styles.inputContainer, errors.email && styles.inputError]}>
+                <Icon name="mail-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="votre@email.com"
+                  placeholderTextColor="#c7c7cc"
+                  value={formData.email}
+                  onChangeText={(text) => updateFormData('email', text)}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={100}
+                />
+              </View>
+              {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
+            </View>
+
+            {/* Téléphone */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Téléphone *</Text>
+              <View style={[styles.inputContainer, errors.phone && styles.inputError]}>
+                <Icon name="call-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="655 78 38 79"
+                  placeholderTextColor="#c7c7cc"
+                  value={formData.phone}
+                  onChangeText={(text) => updateFormData('phone', text)}
+                  keyboardType="phone-pad"
+                  maxLength={15}
+                />
+              </View>
+              {errors.phone && <Text style={styles.errorText}>{errors.phone}</Text>}
+            </View>
+
+            {/* Mot de passe */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Mot de passe *</Text>
+              <View style={[styles.inputContainer, errors.password && styles.inputError]}>
+                <Icon name="lock-closed-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Minimum 8 caractères"
+                  placeholderTextColor="#c7c7cc"
+                  value={formData.password}
+                  onChangeText={(text) => updateFormData('password', text)}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  maxLength={50}
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                  <Icon
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={20}
+                    color="#8e8e93"
+                  />
+                </TouchableOpacity>
+              </View>
+              
+              {/* Indicateur de force du mot de passe */}
+              {formData.password && (
+                <View style={styles.passwordStrengthContainer}>
+                  <View style={styles.passwordStrengthBar}>
+                    {[1, 2, 3, 4, 5].map((level) => (
+                      <View
+                        key={level}
+                        style={[
+                          styles.passwordStrengthSegment,
+                          {
+                            backgroundColor: level <= passwordStrength.strength 
+                              ? (passwordStrength.strength <= 2 ? '#ff3b30' : 
+                                 passwordStrength.strength <= 3 ? '#ff9500' : '#34c759')
+                              : '#e5e5ea'
+                          }
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <Text style={[
+                    styles.passwordStrengthText,
+                    {
+                      color: passwordStrength.strength <= 2 ? '#ff3b30' : 
+                             passwordStrength.strength <= 3 ? '#ff9500' : '#34c759'
+                    }
+                  ]}>
+                    {passwordStrength.text}
+                  </Text>
+                </View>
+              )}
+              
+              {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
+            </View>
+
+            {/* Confirmation mot de passe */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Confirmer le mot de passe *</Text>
+              <View style={[styles.inputContainer, errors.confirmPassword && styles.inputError]}>
+                <Icon name="lock-closed-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Répétez votre mot de passe"
+                  placeholderTextColor="#c7c7cc"
+                  value={formData.confirmPassword}
+                  onChangeText={(text) => updateFormData('confirmPassword', text)}
+                  secureTextEntry={!showConfirmPassword}
+                  autoCapitalize="none"
+                  maxLength={50}
+                />
+                <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
+                  <Icon
+                    name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={20}
+                    color="#8e8e93"
+                  />
+                </TouchableOpacity>
+              </View>
+              {errors.confirmPassword && <Text style={styles.errorText}>{errors.confirmPassword}</Text>}
+            </View>
+
+            {/* Bouton d'inscription */}
+            <TouchableOpacity
+              style={[styles.registerButton, isLoading && styles.disabledButton]}
+              onPress={handleRegistration}
+              disabled={isLoading}
+              activeOpacity={0.8}
+            >
+              {isLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.loadingText}>Création du compte...</Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.registerButtonText}>Créer mon compte</Text>
+                  <Icon name="arrow-forward" size={20} color="#fff" style={styles.buttonIcon} />
+                </>
+              )}
+            </TouchableOpacity>
+
+            {/* Conditions d'utilisation */}
+            <Text style={styles.termsText}>
+              En créant un compte, vous acceptez nos{' '}
+              <Text style={styles.termsLink}>Conditions d'utilisation</Text>
+              {' '}et notre{' '}
+              <Text style={styles.termsLink}>Politique de confidentialité</Text>
+            </Text>
+
+            {/* Lien vers connexion */}
+            <TouchableOpacity onPress={navigateToLogin} style={styles.loginLink}>
+              <Text style={styles.loginLinkText}>
+                Vous avez déjà un compte ?{' '}
+                <Text style={styles.loginLinkBold}>Se connecter</Text>
               </Text>
             </TouchableOpacity>
           </Animatable.View>
-        </KeyboardAvoidingView>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -202,75 +466,173 @@ const RegistrationScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f2f2f7',
+  },
+  keyboardView: {
+    flex: 1,
   },
   scrollContainer: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 40,
   },
-  formContainer: {
+  logoContainer: {
     alignItems: 'center',
+    marginBottom: 30,
   },
   logo: {
-    width: 150,
-    height: 150,
+    width: 100,
+    height: 100,
     marginBottom: 20,
   },
   title: {
-    fontSize: 26,
-    fontWeight: 'bold',
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#1d1d1f',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 17,
+    color: '#8e8e93',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  formContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  inputGroup: {
     marginBottom: 20,
-    color: '#333',
   },
-  input: {
-    width: '100%',
-    height: 50,
-    borderColor: '#ccc',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    marginBottom: 15,
-    backgroundColor: '#f9f9f9',
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1d1d1f',
+    marginBottom: 8,
   },
-  passwordContainer: {
+  inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '100%',
-    height: 50,
-    borderColor: '#ccc',
+    backgroundColor: '#f2f2f7',
+    borderRadius: 12,
     borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    marginBottom: 15,
-    backgroundColor: '#f9f9f9',
+    borderColor: '#d1d1d6',
+    paddingHorizontal: 16,
+    height: 56,
   },
-  passwordInput: {
+  inputError: {
+    borderColor: '#ff3b30',
+    backgroundColor: '#fff5f5',
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  textInput: {
     flex: 1,
+    fontSize: 17,
+    color: '#1d1d1f',
+    fontWeight: '400',
   },
-  icon: {
-    marginLeft: 10,
+  errorText: {
+    color: '#ff3b30',
+    fontSize: 14,
+    marginTop: 6,
+    marginLeft: 4,
+    fontWeight: '400',
   },
-  button: {
-    backgroundColor: '#007bff',
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 10,
-    width: '100%',
+  passwordStrengthContainer: {
+    marginTop: 8,
+  },
+  passwordStrengthBar: {
+    flexDirection: 'row',
+    height: 4,
+    backgroundColor: '#e5e5ea',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  passwordStrengthSegment: {
+    flex: 1,
+    marginRight: 2,
+    borderRadius: 2,
+  },
+  passwordStrengthText: {
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  registerButton: {
+    backgroundColor: '#007aff',
+    borderRadius: 12,
+    height: 56,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 16,
+    shadowColor: '#007aff',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  buttonText: {
-    color: '#000',
+  disabledButton: {
+    opacity: 0.6,
+  },
+  registerButtonText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '600',
+    marginRight: 8,
+  },
+  buttonIcon: {
+    marginLeft: 4,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#ffffff',
     fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  termsText: {
+    fontSize: 14,
+    color: '#8e8e93',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  termsLink: {
+    color: '#007aff',
+    fontWeight: '500',
   },
   loginLink: {
-    color: '#333',
-    marginTop: 10,
+    alignItems: 'center',
+    paddingVertical: 16,
   },
-  loginText: {
-    color: '#000000',
-    fontWeight: 'bold',
+  loginLinkText: {
+    fontSize: 16,
+    color: '#8e8e93',
+  },
+  loginLinkBold: {
+    color: '#007aff',
+    fontWeight: '600',
   },
 });
 
