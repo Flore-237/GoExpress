@@ -14,8 +14,9 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import auth from '@react-native-firebase/auth';
-import firestore from '@react-native-firebase/firestore';
+import { auth, db } from '../config/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { getDoc, doc, updateDoc, serverTimestamp, getFirestore } from 'firebase/firestore';
 
 const PaymentScreen = () => {
   const navigation = useNavigation();
@@ -26,16 +27,18 @@ const PaymentScreen = () => {
 
   console.log('Paramètres reçus:', { reservationData, reservationId });
 
-  // Utilisateur actuel
-  const [currentUser, setCurrentUser] = useState(null);
-  
   // États pour les passagers
   const [passengers, setPassengers] = useState([]);
   
   // État de chargement
   const [loading, setLoading] = useState(false);
-  // État pour suivre si les données utilisateur ont été chargées
-  const [userDataLoaded, setUserDataLoaded] = useState(false);
+  
+  // AJOUT: État pour l'utilisateur authentifié
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  
+  // État pour suivre si les données ont été initialisées
+  const [initialized, setInitialized] = useState(false);
 
   // Données normalisées avec valeurs par défaut
   const normalizedReservationData = {
@@ -57,130 +60,105 @@ const PaymentScreen = () => {
 
   console.log('Données normalisées:', normalizedReservationData);
 
-  // Date et heure actuelles
-  const currentDate = new Date();
-  const formattedDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-  const formattedTime = `${String(currentDate.getHours()).padStart(2, '0')}:${String(currentDate.getMinutes()).padStart(2, '0')}`;
-
-  // Récupération de l'utilisateur actuel et chargements des données
+  // CORRECTION: Écouter l'état d'authentification avec onAuthStateChanged
   useEffect(() => {
-    console.log('Vérification de l\'utilisateur connecté...');
-    const user = auth().currentUser;
+    console.log('Mise en place du listener d\'authentification...');
     
-    if (user) {
-      console.log('Utilisateur connecté:', user.uid);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      console.log('État d\'authentification changé:', user ? `Connecté: ${user.uid}` : 'Non connecté');
       setCurrentUser(user);
+      setAuthLoading(false);
       
-      // Récupérer les informations de l'utilisateur depuis Firestore
-      firestore()
-        .collection('users')
-        .doc(user.uid)
-        .get()
-        .then(documentSnapshot => {
-          console.log('Récupération des données utilisateur...');
-          
-          // Initialiser les passagers avec les sièges sélectionnés
-          if (normalizedReservationData.seats && normalizedReservationData.seats.length > 0) {
-            const initialPassengers = normalizedReservationData.seats.map((seat, index) => {
-              // Pour le premier passager, récupérer les données de l'utilisateur
-              if (index === 0) {
-                if (documentSnapshot.exists) {
-                  const userData = documentSnapshot.data();
-                  console.log('Données utilisateur récupérées:', userData);
-                  
-                  return {
-                    fullName: userData.fullName || userData.nom || '',
-                    email: userData.email || user.email || '',
-                    phone: userData.phone || userData.telephone || '',
-                    pieceIdentite: userData.pieceIdentite || userData.cni || '',
-                    seatLabel: seat.label || seat.number || `Siège ${index + 1}`
-                  };
-                } else {
-                  console.log('Aucune donnée utilisateur trouvée dans Firestore');
-                  return {
-                    fullName: '',
-                    email: user.email || '',
-                    phone: '',
-                    pieceIdentite: '',
-                    seatLabel: seat.label || seat.number || `Siège ${index + 1}`
-                  };
-                }
-              } else {
-                // Pour les autres passagers, champs vides
-                return {
-                  fullName: '',
-                  email: '',
-                  phone: '',
-                  pieceIdentite: '',
-                  seatLabel: seat.label || seat.number || `Siège ${index + 1}`
-                };
-              }
-            });
-            
-            console.log('Passagers initialisés:', initialPassengers);
-            setPassengers(initialPassengers);
-          } else {
-            // Cas où il n'y a pas de sièges définis, créer un passager par défaut
-            console.log('Aucun siège défini, création d\'un passager par défaut');
-            const userData = documentSnapshot.exists ? documentSnapshot.data() : {};
-            setPassengers([{
-              fullName: userData.fullName || userData.nom || '',
-              email: userData.email || user.email || '',
-              phone: userData.phone || userData.telephone || '',
-              pieceIdentite: userData.pieceIdentite || userData.cni || '',
-              seatLabel: 'Siège 1'
-            }]);
-          }
-          
-          setUserDataLoaded(true);
-        })
-        .catch(error => {
-          console.error('Erreur lors de la récupération des informations utilisateur:', error);
-          
-          // Initialiser les passagers même en cas d'erreur
-          const defaultPassengers = normalizedReservationData.seats && normalizedReservationData.seats.length > 0
-            ? normalizedReservationData.seats.map((seat, index) => ({
-                fullName: index === 0 ? '' : '',
-                email: index === 0 ? (user.email || '') : '',
-                phone: '',
-                pieceIdentite: '',
-                seatLabel: seat.label || seat.number || `Siège ${index + 1}`
-              }))
-            : [{
-                fullName: '',
-                email: user.email || '',
-                phone: '',
-                pieceIdentite: '',
-                seatLabel: 'Siège 1'
-              }];
-          
-          setPassengers(defaultPassengers);
-          setUserDataLoaded(true);
-        });
-    } else {
-      console.log('Aucun utilisateur connecté');
+      if (user) {
+        // Initialiser les données seulement si l'utilisateur est connecté
+        initializeDataForUser(user);
+      } else {
+        // Si pas d'utilisateur, initialiser avec des données vides
+        setPassengers([{
+          fullName: '',
+          email: '',
+          phone: '',
+          pieceIdentite: '',
+          seatLabel: 'Siège 1'
+        }]);
+        setInitialized(true);
+      }
+    });
+
+    // Nettoyer le listener au démontage du composant
+    return () => unsubscribe();
+  }, []);
+
+  // Fonction pour initialiser les données pour un utilisateur connecté
+  const initializeDataForUser = async (user) => {
+    try {
+      console.log('Initialisation des données pour l\'utilisateur:', user.uid);
       
-      // Initialiser les passagers sans données utilisateur
-      const defaultPassengers = normalizedReservationData.seats && normalizedReservationData.seats.length > 0
-        ? normalizedReservationData.seats.map((seat, index) => ({
+      // Charger les données utilisateur depuis Firestore
+      const userDocRef = doc(db, 'users', user.uid);
+      const docSnapshot = await getDoc(userDocRef);
+      
+      let userData = null;
+      if (docSnapshot.exists()) {
+        userData = docSnapshot.data();
+        console.log('Données utilisateur trouvées:', userData);
+      } else {
+        console.log('Aucune donnée utilisateur dans Firestore');
+      }
+      
+      // Initialiser les passagers
+      initializePassengers(userData, user);
+      
+    } catch (error) {
+      console.error('Erreur chargement données utilisateur:', error);
+      // En cas d'erreur, initialiser avec les données de base
+      initializePassengers(null, user);
+    } finally {
+      setInitialized(true);
+    }
+  };
+
+  // Fonction d'initialisation des passagers
+  const initializePassengers = (userData, user) => {
+    console.log('Initialisation des passagers avec:', { userData: !!userData, user: user.uid });
+    
+    if (normalizedReservationData.seats && normalizedReservationData.seats.length > 0) {
+      const initialPassengers = normalizedReservationData.seats.map((seat, index) => {
+        // Pour le premier passager, utiliser les données de l'utilisateur
+        if (index === 0) {
+          return {
+            fullName: userData?.fullName || (userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : ''),
+            email: userData?.email || user.email || '',
+            phone: userData?.phone || '',
+            pieceIdentite: userData?.pieceIdentite || userData?.cni || '',
+            seatLabel: seat.label || seat.number || `Siège ${index + 1}`
+          };
+        } else {
+          // Pour les autres passagers, champs vides
+          return {
             fullName: '',
             email: '',
             phone: '',
             pieceIdentite: '',
             seatLabel: seat.label || seat.number || `Siège ${index + 1}`
-          }))
-        : [{
-            fullName: '',
-            email: '',
-            phone: '',
-            pieceIdentite: '',
-            seatLabel: 'Siège 1'
-          }];
+          };
+        }
+      });
       
-      setPassengers(defaultPassengers);
-      setUserDataLoaded(true);
+      console.log('Passagers initialisés:', initialPassengers);
+      setPassengers(initialPassengers);
+    } else {
+      // Cas où il n'y a pas de sièges définis
+      console.log('Création d\'un passager par défaut');
+      setPassengers([{
+        fullName: userData?.fullName || (userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}` : ''),
+        email: userData?.email || user.email || '',
+        phone: userData?.phone || '',
+        pieceIdentite: userData?.pieceIdentite || userData?.cni || '',
+        seatLabel: 'Siège 1'
+      }]);
     }
-  }, []);
+  };
 
   const handleGoBack = () => navigation.goBack();
 
@@ -221,25 +199,41 @@ const PaymentScreen = () => {
     return result;
   };
 
+  // CORRECTION: Utiliser l'état currentUser au lieu d'auth.currentUser
   const handlePayment = async () => {
+    console.log('=== DÉBUT handlePayment ===');
+    console.log('Utilisateur actuel dans handlePayment:', currentUser?.uid);
+    
+    if (!currentUser) {
+      console.log('ERREUR: Aucun utilisateur connecté');
+      Alert.alert(
+        'Connexion requise', 
+        'Vous devez être connecté pour finaliser votre réservation.',
+        [
+          {
+            text: 'Se connecter',
+            onPress: () => navigation.navigate('AuthStack', { screen: 'Login' })
+          }
+        ]
+      );
+      return;
+    }
+
     // Validation du formulaire
     if (!validateForm()) return;
 
     setLoading(true);
-    console.log('Début du processus de paiement...');
-
     try {
-      // Utiliser l'ID de réservation existant ou en générer un nouveau
       const finalReservationId = normalizedReservationData.id !== 'default_reservation_id' 
         ? normalizedReservationData.id 
         : generateRandomId(20);
       
-      const paiementId = Math.floor(Math.random() * 10000).toString();
+      const paiementId = generateRandomId(8);
       
-      console.log('IDs utilisés:', { finalReservationId, paiementId });
-
-      // Mise à jour de la réservation existante avec les informations des passagers
+      // Préparer les données de mise à jour
       const reservationUpdateData = {
+        userId: currentUser.uid,
+        userEmail: currentUser.email,
         statut: 'confirmé',
         statutPaiement: 'en_attente',
         paymentStatus: 'en_attente',
@@ -252,93 +246,68 @@ const PaymentScreen = () => {
           passengerNumber: index + 1
         })),
         paiementId: paiementId,
-        dateConfirmation: firestore.FieldValue.serverTimestamp(),
-        updatedAt: firestore.FieldValue.serverTimestamp()
+        dateConfirmation: serverTimestamp(),
+        updatedAt: serverTimestamp()
       };
 
-      console.log('Mise à jour de la réservation:', reservationUpdateData);
-
-      // Mettre à jour la réservation existante
-      await firestore()
-        .collection('reservations')
-        .doc(finalReservationId)
-        .update(reservationUpdateData);
-
+      console.log('Mise à jour réservation avec userId:', currentUser.uid);
+      console.log('Données de mise à jour:', reservationUpdateData);
+      
+      const reservationRef = doc(db, 'reservations', finalReservationId);
+      await updateDoc(reservationRef, reservationUpdateData);
+      
       console.log('Réservation mise à jour avec succès');
 
-      // Mise à jour des places disponibles dans le voyage
-      if (normalizedReservationData.voyageId !== 'default_voyage_id') {
-        const voyageRef = firestore().collection('voyages').doc(normalizedReservationData.voyageId);
-        console.log('Mise à jour des places disponibles pour le voyage:', normalizedReservationData.voyageId);
-        
-        try {
-          const voyageDoc = await voyageRef.get();
-          
-          if (voyageDoc.exists) {
-            console.log('Document de voyage trouvé, mise à jour des places...');
-            const seatsToUpdate = normalizedReservationData.seatType === 'Classique' 
-              ? { placesClassiqueDisponibles: firestore.FieldValue.increment(-normalizedReservationData.numberOfSeats) }
-              : { placesVIPDisponibles: firestore.FieldValue.increment(-normalizedReservationData.numberOfSeats) };
-            
-            await voyageRef.update(seatsToUpdate);
-            console.log('Places mises à jour avec succès');
-          } else {
-            console.warn('Document de voyage non trouvé!');
-          }
-        } catch (voyageError) {
-          console.error('Erreur lors de la mise à jour du voyage:', voyageError);
-          // Ne pas bloquer le processus si la mise à jour du voyage échoue
-        }
-      }
-
-      // Récupérer les données complètes de la réservation pour le ticket
-      const updatedReservationDoc = await firestore()
-        .collection('reservations')
-        .doc(finalReservationId)
-        .get();
-
-      const completeReservationData = updatedReservationDoc.exists 
-        ? updatedReservationDoc.data() 
-        : normalizedReservationData;
-
-      // Préparer les données pour le ticket
-      const ticketData = {
-        ...completeReservationData,
+      // Redirection vers la page de ticket
+      navigation.replace('Ticket', {
         reservationId: finalReservationId,
-        paiementId: paiementId,
-        passengers: passengers,
-        // Données du voyage normalisées
-        departure: normalizedReservationData.departure,
-        destination: normalizedReservationData.destination,
-        departureDate: normalizedReservationData.departureDate,
-        departureTime: normalizedReservationData.departureTime,
-        agencyName: normalizedReservationData.agencyName,
-        agencyLogo: normalizedReservationData.agencyLogo,
-        seatType: normalizedReservationData.seatType,
-        totalPrice: normalizedReservationData.totalPrice,
-        numberOfSeats: normalizedReservationData.numberOfSeats,
-        seats: normalizedReservationData.seats
-      };
-
-      console.log('Données du ticket préparées:', ticketData);
-
-      // Navigation vers la page de ticket avec les données complètes
-      navigation.navigate('Ticket', { 
-        ticketData: ticketData,
-        reservationId: finalReservationId
+        reservationData: {
+          ...normalizedReservationData,
+          ...reservationUpdateData,
+          paiementId
+        }
       });
 
     } catch (error) {
-      console.error('Erreur détaillée lors du processus de paiement:', error);
-      console.error('Message:', error.message);
-      console.error('Code:', error.code);
-      console.error('Stack:', error.stack);
-      Alert.alert('Erreur', 'Une erreur est survenue lors de la confirmation de la réservation. Veuillez réessayer.');
+      console.error('Erreur lors de la confirmation:', error);
+      Alert.alert(
+        'Erreur',
+        'Une erreur est survenue lors de la confirmation. Veuillez réessayer.\n\nDétails: ' + error.message
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  // Fonction pour formater la date
+  const formatDate = (dateString) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('fr-FR', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } catch (error) {
+      console.error('Erreur lors du formatage de la date:', error);
+      return dateString;
+    }
+  };
+
+  // Fonction pour formater le prix
+  const formatPrice = (price) => {
+    try {
+      return new Intl.NumberFormat('fr-FR', {
+        style: 'currency',
+        currency: 'XAF'
+      }).format(price);
+    } catch (error) {
+      console.error('Erreur lors du formatage du prix:', error);
+      return `${price} XAF`;
+    }
+  };
+
+  // Fonction pour mettre à jour les champs des passagers
   const updatePassengerField = (index, field, value) => {
     const updatedPassengers = [...passengers];
     updatedPassengers[index] = {
@@ -346,25 +315,6 @@ const PaymentScreen = () => {
       [field]: value
     };
     setPassengers(updatedPassengers);
-  };
-
-  const formatPrice = (price) => {
-    const numericPrice = typeof price === 'string' ? parseFloat(price) : price;
-    return `${Number(numericPrice || 0).toLocaleString('fr-FR')} FCFA`;
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return '';
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('fr-FR', { 
-        day: 'numeric', 
-        month: 'long', 
-        year: 'numeric' 
-      });
-    } catch (e) {
-      return '';
-    }
   };
 
   const renderPassengerForms = () => {
@@ -447,6 +397,42 @@ const PaymentScreen = () => {
     );
   }
 
+  // CORRECTION: Affichage de l'état d'authentification basé sur currentUser
+  const renderStatusInfo = () => {
+    if (__DEV__) { // Seulement en développement
+      return (
+        <View style={styles.debugContainer}>
+          <Text style={styles.debugText}>
+            Utilisateur: {currentUser ? '✅ ' + currentUser.uid : '❌ Non connecté'} | 
+            Initialisé: {initialized ? '✅' : '⏳'} |
+            Auth Loading: {authLoading ? '⏳' : '✅'}
+          </Text>
+        </View>
+      );
+    }
+    return null;
+  };
+
+  // Afficher un loader pendant le chargement de l'authentification
+  if (authLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
+            <Icon name="arrow-left" size={22} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Finaliser la réservation</Text>
+          <View style={styles.backButton} />
+        </View>
+        
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007bff" />
+          <Text style={styles.loadingText}>Vérification de l'authentification...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       {/* En-tête */}
@@ -458,7 +444,9 @@ const PaymentScreen = () => {
         <View style={styles.backButton} />
       </View>
 
-      {!userDataLoaded ? (
+      {renderStatusInfo()}
+
+      {!initialized ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007bff" />
           <Text style={styles.loadingText}>Chargement des informations...</Text>
@@ -529,14 +517,19 @@ const PaymentScreen = () => {
 
           {/* Bouton de validation */}
           <TouchableOpacity 
-            style={styles.payButton}
+            style={[
+              styles.payButton,
+              !currentUser && styles.payButtonDisabled
+            ]}
             onPress={handlePayment}
-            disabled={loading}
+            disabled={loading || !currentUser}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.payButtonText}>Confirmer la réservation</Text>
+              <Text style={styles.payButtonText}>
+                {!currentUser ? 'Connexion requise' : 'Confirmer la réservation'}
+              </Text>
             )}
           </TouchableOpacity>
         </>
@@ -567,6 +560,21 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  debugContainer: {
+    backgroundColor: '#e3f2fd',
+    padding: 8,
+    marginHorizontal: 15,
+    marginTop: 10,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#2196f3',
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#1976d2',
+    textAlign: 'center',
+    fontFamily: 'monospace',
   },
   errorContainer: {
     flex: 1,
@@ -744,6 +752,9 @@ const styles = StyleSheet.create({
     margin: 15,
     borderRadius: 10,
     alignItems: 'center',
+  },
+  payButtonDisabled: {
+    backgroundColor: '#ccc',
   },
   payButtonText: {
     color: '#fff',

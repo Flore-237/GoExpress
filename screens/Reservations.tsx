@@ -17,7 +17,9 @@ import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { format, parseISO, isAfter } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import firestore from '@react-native-firebase/firestore';
+import { auth, db } from '../config/firebase';
+import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore'; 
+import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
 // Composant EmptyState
 const EmptyState = ({ icon, title, message, actionText, onActionPress }) => {
@@ -117,93 +119,153 @@ const ReservationScreen: React.FC = () => {
     return unsubscribe;
   }, [navigation]);
 
+  // Fonction pour récupérer l'ID utilisateur depuis AsyncStorage ou Firebase Auth
+  const getCurrentUserId = async () => {
+    try {
+      // Essayer d'abord AsyncStorage
+      const userId = await AsyncStorage.getItem('userId');
+      if (userId) {
+        return userId;
+      }
+      
+      // Sinon utiliser Firebase Auth
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        return currentUser.uid;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Erreur lors de la récupération de l\'ID utilisateur:', error);
+      return null;
+    }
+  };
+
   const fetchReservations = async () => {
     try {
       setLoading(true);
       
-      // Récupérer l'utilisateur connecté
-      const currentUser = auth().currentUser;
+      // Récupérer l'ID utilisateur
+      const userId = await getCurrentUserId();
       
-      if (!currentUser) {
+      if (!userId) {
+        console.log('Aucun utilisateur connecté');
+        setReservations([]);
         setLoading(false);
         return;
       }
-      
-      const userId = currentUser.uid;
+
+      console.log('Récupération des réservations pour userId:', userId);
       
       // Récupérer les réservations de l'utilisateur depuis Firestore
-      const reservationsSnapshot = await firestore()
-        .collection('reservations')
-        .where('userId', '==', userId)
-        .orderBy('createdAt', 'desc')
-        .get();
+      const reservationsRef = collection(db, 'reservations');
+      const q = query(reservationsRef, where('userId', '==', userId));
+      const reservationsSnapshot = await getDocs(q);
         
       if (reservationsSnapshot.empty) {
+        console.log('Aucune réservation trouvée');
         setReservations([]);
         setLoading(false);
         return;
       }
       
+      console.log('Nombre de réservations trouvées:', reservationsSnapshot.size);
+      
       // Transformer les données et récupérer les informations associées
       const reservationsData: Reservation[] = [];
       
-      for (const doc of reservationsSnapshot.docs) {
-        const reservationData = doc.data() as Reservation;
+      for (const docSnap of reservationsSnapshot.docs) {
+        const reservationData = docSnap.data() as Reservation;
+        console.log('Données de réservation:', reservationData);
         
-        // Récupérer les informations du voyage
-        const voyageDoc = await firestore().collection('voyages').doc(reservationData.voyageId).get();
-        
-        // Récupérer les informations de l'agence
-        const agencyDoc = await firestore().collection('agencies').doc(reservationData.agencyId).get();
-        
-        // Récupérer les informations du ticket
-        const ticketDoc = await firestore().collection('tickets').doc(reservationData.ticketId).get();
-        
-        // Récupérer les informations du paiement
-        const paiementDoc = await firestore().collection('paiements').doc(reservationData.paiementId).get();
-        
-        if (voyageDoc.exists && agencyDoc.exists) {
-          const voyageData = voyageDoc.data();
-          const agencyData = agencyDoc.data();
-          const ticketData = ticketDoc.exists ? ticketDoc.data() : null;
-          const paiementData = paiementDoc.exists ? paiementDoc.data() : null;
+        try {
+          // Récupérer les informations du voyage
+          const voyageDocRef = doc(db, 'voyages', reservationData.voyageId);
+          const voyageDoc = await getDoc(voyageDocRef);
           
-          reservationsData.push({
-            ...reservationData,
-            id: doc.id,
-            dateVoyage: voyageData?.dateDepart,
-            heureDepart: voyageData?.heureDepart,
-            villeDepart: voyageData?.departure,
-            villeArrivee: voyageData?.destination,
-            nomAgence: agencyData?.name,
-            logoAgence: agencyData?.logoUrl,
-            numeroBillet: ticketData?.barcode,
-            statutPaiement: paiementData?.status
-          });
+          // Récupérer les informations de l'agence
+          const agencyDocRef = doc(db, 'agencies', reservationData.agencyId);
+          const agencyDoc = await getDoc(agencyDocRef);
+          
+          // Récupérer les informations du ticket (optionnel)
+          let ticketData = null;
+          if (reservationData.ticketId) {
+            const ticketDocRef = doc(db, 'tickets', reservationData.ticketId);
+            const ticketDoc = await getDoc(ticketDocRef);
+            ticketData = ticketDoc.exists() ? ticketDoc.data() : null;
+          }
+          
+          // Récupérer les informations du paiement (optionnel)
+          let paiementData = null;
+          if (reservationData.paiementId) {
+            const paiementDocRef = doc(db, 'paiements', reservationData.paiementId);
+            const paiementDoc = await getDoc(paiementDocRef);
+            paiementData = paiementDoc.exists() ? paiementDoc.data() : null;
+          }
+          
+          if (voyageDoc.exists() && agencyDoc.exists()) {
+            const voyageData = voyageDoc.data();
+            const agencyData = agencyDoc.data();
+            
+            reservationsData.push({
+              ...reservationData,
+              id: docSnap.id,
+              dateVoyage: voyageData?.dateDepart,
+              heureDepart: voyageData?.heureDepart,
+              villeDepart: voyageData?.departure || voyageData?.villeDepart,
+              villeArrivee: voyageData?.destination || voyageData?.villeArrivee,
+              nomAgence: agencyData?.name || agencyData?.nom,
+              logoAgence: agencyData?.logoUrl || agencyData?.logo,
+              numeroBillet: ticketData?.barcode || ticketData?.numero,
+              statutPaiement: paiementData?.status || paiementData?.statut
+            });
+          } else {
+            console.log('Voyage ou agence non trouvé pour la réservation:', docSnap.id);
+          }
+        } catch (error) {
+          console.error('Erreur lors de la récupération des données associées:', error);
         }
       }
       
-      // Filtrer les réservations selon l'onglet actif (à venir ou passées)
-      const currentDate = new Date();
-      const filteredReservations = reservationsData.filter(reservation => {
-        if (!reservation.dateVoyage) return false;
-        
-        const voyageDate = parseISO(`${reservation.dateVoyage}T${reservation.heureDepart?.replace('h', ':')}`);
-        
-        if (activeTab === 'upcoming') {
-          return isAfter(voyageDate, currentDate);
-        } else {
-          return !isAfter(voyageDate, currentDate);
+      console.log('Réservations finales:', reservationsData);
+      
+      // Trier les réservations par date de création (plus récentes en premier)
+      reservationsData.sort((a, b) => {
+        if (a.createdAt && b.createdAt) {
+          return b.createdAt.toDate() - a.createdAt.toDate();
         }
+        return 0;
       });
       
-      setReservations(filteredReservations);
+      setReservations(reservationsData);
       setLoading(false);
     } catch (error) {
       console.error('Erreur lors de la récupération des réservations:', error);
       Alert.alert('Erreur', 'Impossible de charger vos réservations. Veuillez réessayer.');
       setLoading(false);
     }
+  };
+
+  // Filtrer les réservations selon l'onglet actif
+  const getFilteredReservations = () => {
+    const currentDate = new Date();
+    
+    return reservations.filter(reservation => {
+      if (!reservation.dateVoyage) return activeTab === 'past'; // Mettre les réservations sans date dans "passé"
+      
+      try {
+        const voyageDate = parseISO(`${reservation.dateVoyage}T${reservation.heureDepart?.replace('h', ':') || '00:00'}`);
+        
+        if (activeTab === 'upcoming') {
+          return isAfter(voyageDate, currentDate) && reservation.statut !== 'annulé';
+        } else {
+          return !isAfter(voyageDate, currentDate) || reservation.statut === 'annulé';
+        }
+      } catch (error) {
+        console.error('Erreur lors du parsing de la date:', error);
+        return activeTab === 'past';
+      }
+    });
   };
 
   const onRefresh = async () => {
@@ -220,11 +282,11 @@ const ReservationScreen: React.FC = () => {
     try {
       await Share.share({
         message: `Mon billet de voyage avec ${reservation.nomAgence}\n
-Date: ${format(parseISO(reservation.dateVoyage || ''), 'dd/MM/yyyy', { locale: fr })}\n
-Heure: ${reservation.heureDepart}\n
-Trajet: ${reservation.villeDepart} - ${reservation.villeArrivee}\n
+Date: ${reservation.dateVoyage ? format(parseISO(reservation.dateVoyage), 'dd/MM/yyyy', { locale: fr }) : 'Date non définie'}\n
+Heure: ${reservation.heureDepart || 'Heure non définie'}\n
+Trajet: ${reservation.villeDepart || 'Départ'} - ${reservation.villeArrivee || 'Arrivée'}\n
 Type: ${reservation.typePlace}\n
-Référence: ${reservation.numeroBillet}`,
+Référence: ${reservation.numeroBillet || reservation.id}`,
         title: `Billet de voyage ${reservation.nomAgence}`,
       });
     } catch (error) {
@@ -243,13 +305,15 @@ Référence: ${reservation.numeroBillet}`,
           style: 'destructive',
           onPress: async () => {
             try {
-              await firestore().collection('reservations').doc(reservationId).update({
+              const reservationRef = doc(db, 'reservations', reservationId);
+              await updateDoc(reservationRef, {
                 statut: 'annulé',
               });
               
               Alert.alert('Succès', 'Votre réservation a été annulée');
               fetchReservations();
             } catch (error) {
+              console.error('Erreur lors de l\'annulation:', error);
               Alert.alert('Erreur', 'Impossible d\'annuler la réservation. Veuillez réessayer.');
             }
           }
@@ -264,7 +328,7 @@ Référence: ${reservation.numeroBillet}`,
     
     const formattedDate = item.dateVoyage 
       ? format(parseISO(item.dateVoyage), 'dd MMM yyyy', { locale: fr }) 
-      : '';
+      : 'Date non définie';
     
     return (
       <TouchableOpacity
@@ -287,7 +351,7 @@ Référence: ${reservation.numeroBillet}`,
                 </Text>
               </View>
             )}
-            <Text style={styles.agencyName}>{item.nomAgence}</Text>
+            <Text style={styles.agencyName}>{item.nomAgence || 'Agence inconnue'}</Text>
           </View>
           <View style={[
             styles.statusBadge,
@@ -301,19 +365,19 @@ Référence: ${reservation.numeroBillet}`,
         <View style={styles.cardBody}>
           <View style={styles.journeyInfo}>
             <View style={styles.routeContainer}>
-              <Text style={styles.cityText}>{item.villeDepart}</Text>
+              <Text style={styles.cityText}>{item.villeDepart || 'Départ'}</Text>
               <View style={styles.arrowContainer}>
                 <View style={styles.arrowLine} />
                 <Icon name="arrow-right" size={20} color="#0066CC" />
               </View>
-              <Text style={styles.cityText}>{item.villeArrivee}</Text>
+              <Text style={styles.cityText}>{item.villeArrivee || 'Arrivée'}</Text>
             </View>
             
             <View style={styles.dateTimeContainer}>
               <Icon name="calendar" size={16} color="#666" />
               <Text style={styles.dateTimeText}>{formattedDate}</Text>
               <Icon name="clock-outline" size={16} color="#666" style={{ marginLeft: 8 }} />
-              <Text style={styles.dateTimeText}>{item.heureDepart}</Text>
+              <Text style={styles.dateTimeText}>{item.heureDepart || 'Heure non définie'}</Text>
             </View>
           </View>
           
@@ -324,7 +388,7 @@ Référence: ${reservation.numeroBillet}`,
             </View>
             <View style={styles.priceContainer}>
               <Text style={styles.priceLabel}>Prix:</Text>
-              <Text style={styles.priceValue}>{item.prixTotal.toLocaleString()} FCFA</Text>
+              <Text style={styles.priceValue}>{item.prixTotal?.toLocaleString() || '0'} FCFA</Text>
             </View>
           </View>
         </View>
@@ -372,6 +436,7 @@ Référence: ${reservation.numeroBillet}`,
     );
   };
   
+  const filteredReservations = getFilteredReservations();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -387,7 +452,7 @@ Référence: ${reservation.numeroBillet}`,
           onPress={() => setActiveTab('upcoming')}
         >
           <Text style={[styles.tabText, activeTab === 'upcoming' && styles.activeTabText]}>
-            À venir
+            À venir ({filteredReservations.length})
           </Text>
         </TouchableOpacity>
         
@@ -396,7 +461,7 @@ Référence: ${reservation.numeroBillet}`,
           onPress={() => setActiveTab('past')}
         >
           <Text style={[styles.tabText, activeTab === 'past' && styles.activeTabText]}>
-            Passés
+            Passés ({getFilteredReservations().length})
           </Text>
         </TouchableOpacity>
       </View>
@@ -408,7 +473,7 @@ Référence: ${reservation.numeroBillet}`,
         </View>
       ) : (
         <FlatList
-          data={reservations}
+          data={filteredReservations}
           renderItem={renderReservationItem}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}

@@ -1,3 +1,4 @@
+// android/app/build.gradle
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
@@ -21,10 +22,13 @@ android {
         versionCode 1
         versionName "1.0"
 
-        // ✅ Ne compiler que les architectures essentielles
         ndk {
             abiFilters "armeabi-v7a", "arm64-v8a"
         }
+
+        manifestPlaceholders = [
+            GOOGLE_PLAY_SERVICES_VERSION: "17.0.0"  // Changed version
+        ]
     }
 
     signingConfigs {
@@ -34,6 +38,12 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            storeFile file(MYAPP_RELEASE_STORE_FILE)
+            storePassword MYAPP_RELEASE_STORE_PASSWORD
+            keyAlias MYAPP_RELEASE_KEY_ALIAS
+            keyPassword MYAPP_RELEASE_KEY_PASSWORD
+        }
     }
 
     buildTypes {
@@ -41,10 +51,13 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.debug // ⚠️ change ceci si tu as un keystore de prod
-            minifyEnabled true                  // ✅ Réduction du code Java
-            shrinkResources true                // ✅ Suppression des ressources inutiles
+            signingConfig signingConfigs.release
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            ndk {
+                debugSymbolLevel 'SYMBOL_TABLE'
+            }
         }
     }
 }
@@ -57,6 +70,9 @@ dependencies {
     implementation("com.facebook.react:react-android")
     implementation project(':react-native-splash-screen')
 
+    // Update Google Play Services version
+    implementation "com.google.android.gms:play-services-base:17.0.0"
+    
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {
