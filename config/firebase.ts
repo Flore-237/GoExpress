@@ -1,7 +1,6 @@
-import { initializeApp, getApps } from 'firebase/app';
-import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
-import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
+import { initializeApp } from 'firebase/app';
+import { initializeFirestore, persistentLocalCache, persistentSingleTabManager } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAcoaYf0LIbbQjM0mPo8v0SsFHpPxUAi4w",
@@ -13,23 +12,15 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-let app;
-if (getApps().length === 0) {
-  app = initializeApp(firebaseConfig);
-} else {
-  app = getApps()[0];
-}
-
-// Initialize Auth with persistence
-const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
-});
+const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore with persistence
 const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
+    tabManager: persistentSingleTabManager()
   })
 });
 
-export { auth, db };
+const auth = getAuth(app);
+
+export { db, auth };

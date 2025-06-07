@@ -78,13 +78,9 @@ const RegistrationScreen = () => {
       newErrors.phone = 'Numéro de téléphone invalide (9-15 chiffres)';
     }
 
-    // Validation mot de passe renforcée
+    // Simplifier la validation du mot de passe
     if (!formData.password) {
       newErrors.password = 'Le mot de passe est requis';
-    } else if (formData.password.length < 8) {
-      newErrors.password = 'Le mot de passe doit contenir au moins 8 caractères';
-    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/.test(formData.password)) {
-      newErrors.password = 'Le mot de passe doit contenir au moins une minuscule, une majuscule, un chiffre et un caractère spécial';
     }
 
     // Validation confirmation mot de passe
@@ -215,30 +211,6 @@ const RegistrationScreen = () => {
     navigation.navigate(ROUTES.LOGIN);
   };
 
-  // Fonction pour vérifier la force du mot de passe
-  const getPasswordStrength = (password) => {
-    if (!password) return { strength: 0, text: '' };
-    
-    let strength = 0;
-    const checks = [
-      password.length >= 8,
-      /[a-z]/.test(password),
-      /[A-Z]/.test(password),
-      /\d/.test(password),
-      /[@$!%*?&]/.test(password)
-    ];
-    
-    strength = checks.filter(Boolean).length;
-    
-    const strengthTexts = [
-      '', 'Très faible', 'Faible', 'Moyen', 'Fort', 'Très fort'
-    ];
-    
-    return { strength, text: strengthTexts[strength] };
-  };
-
-  const passwordStrength = getPasswordStrength(formData.password);
-
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
@@ -360,37 +332,6 @@ const RegistrationScreen = () => {
                   />
                 </TouchableOpacity>
               </View>
-              
-              {/* Indicateur de force du mot de passe */}
-              {formData.password && (
-                <View style={styles.passwordStrengthContainer}>
-                  <View style={styles.passwordStrengthBar}>
-                    {[1, 2, 3, 4, 5].map((level) => (
-                      <View
-                        key={level}
-                        style={[
-                          styles.passwordStrengthSegment,
-                          {
-                            backgroundColor: level <= passwordStrength.strength 
-                              ? (passwordStrength.strength <= 2 ? '#ff3b30' : 
-                                 passwordStrength.strength <= 3 ? '#ff9500' : '#34c759')
-                              : '#e5e5ea'
-                          }
-                        ]}
-                      />
-                    ))}
-                  </View>
-                  <Text style={[
-                    styles.passwordStrengthText,
-                    {
-                      color: passwordStrength.strength <= 2 ? '#ff3b30' : 
-                             passwordStrength.strength <= 3 ? '#ff9500' : '#34c759'
-                    }
-                  ]}>
-                    {passwordStrength.text}
-                  </Text>
-                </View>
-              )}
               
               {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
             </View>
@@ -550,26 +491,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginLeft: 4,
     fontWeight: '400',
-  },
-  passwordStrengthContainer: {
-    marginTop: 8,
-  },
-  passwordStrengthBar: {
-    flexDirection: 'row',
-    height: 4,
-    backgroundColor: '#e5e5ea',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  passwordStrengthSegment: {
-    flex: 1,
-    marginRight: 2,
-    borderRadius: 2,
-  },
-  passwordStrengthText: {
-    fontSize: 12,
-    marginTop: 4,
-    fontWeight: '500',
   },
   registerButton: {
     backgroundColor: '#007aff',

@@ -20,6 +20,7 @@ import { fr } from 'date-fns/locale';
 import { auth, db } from '../config/firebase';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore'; 
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
+import { fetchUserReservations } from '../utils/firebase-helpers';
 
 // Composant EmptyState
 const EmptyState = ({ icon, title, message, actionText, onActionPress }) => {
