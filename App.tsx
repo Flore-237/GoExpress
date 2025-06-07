@@ -6,7 +6,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer } from '@react-navigation/native';
 import Feather from 'react-native-vector-icons/Feather';
-
+import { app } from './config/firebase';
 
 // Import des écrans
 import HomeScreen from './screens/Home';
@@ -27,7 +27,8 @@ import FeaturesScreen3 from './screens/FutureScreen3';
 import LoginScreen from './screens/Login';
 import RegistrationScreen from './screens/singUp';
 import ReservationScreen from './screens/Reservations';
-
+import HistoriqueReservation from './screens/HistoriqueReservation';
+import ReservationHistory from './screens/HistoriqueReservation';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -55,7 +56,8 @@ export const ROUTES = {
   MAIN_TABS: 'MainTabs',
   AUTH: 'Auth',
   RESERVATION_SCREEN: 'ReservationScreen',
-
+  RESERVATION_HISTORY: 'ReservationHistory', // Ajout de cette ligne
+  HISTORIQUE_RESERVATION: 'HistoriqueReservation',
 };
 
 function AuthNavigator({ setIsLoggedIn }) {
@@ -75,9 +77,11 @@ function OnboardingNavigator({ onFinishOnboarding }) {
       <OnboardingStack.Screen name={ROUTES.WELCOME}>
         {(props) => <WelcomeScreen {...props} onNext={() => props.navigation.navigate(ROUTES.FEATURES)} />}
       </OnboardingStack.Screen>
+      
       <OnboardingStack.Screen name={ROUTES.FEATURES}>
         {(props) => <FeaturesScreen {...props} onNext={() => props.navigation.navigate(ROUTES.FEATURES3)} />}
       </OnboardingStack.Screen>
+      
       <OnboardingStack.Screen name={ROUTES.FEATURES3}>
         {(props) => <FeaturesScreen3 {...props} onNext={onFinishOnboarding} />}
       </OnboardingStack.Screen>
@@ -85,20 +89,31 @@ function OnboardingNavigator({ onFinishOnboarding }) {
   );
 }
 
-function MainStack() {
+const MainStack = createNativeStackNavigator();
+
+function MainStackNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name={ROUTES.HOME} component={HomeScreen} />
-      <Stack.Screen name={ROUTES.AGENCY_DETAIL} component={AgencyDetail} />
       <Stack.Screen name={ROUTES.AGENCY_SELECT} component={AgencySelect} />
-      <Stack.Screen name={ROUTES.DETAIL_RESERVATION} component={DetailReservation} />
-      <Stack.Screen name={ROUTES.SEARCH_RESULTS} component={SearchResults} />
-      <Stack.Screen name={ROUTES.HORAIRE} component={HoraireScreen} />
+      <Stack.Screen name={ROUTES.AGENCY_DETAIL} component={AgencyDetail} />
       <Stack.Screen name={ROUTES.SEAT_SELECTION} component={SeatSelection} />
       <Stack.Screen name={ROUTES.PAYMENT} component={Payment} />
       <Stack.Screen name={ROUTES.TICKET} component={Tickets} />
-      <Stack.Screen name={ROUTES.RESERVATION_SCREEN} component={ReservationScreen} />
-     
+      <Stack.Screen 
+        name={ROUTES.RESERVATION_HISTORY} 
+        component={ReservationHistory}
+        options={{ headerShown: true }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+function ReservationStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name={ROUTES.HISTORIQUE_RESERVATION} component={HistoriqueReservation} />
+      <Stack.Screen name={ROUTES.DETAIL_RESERVATION} component={DetailReservation} />
     </Stack.Navigator>
   );
 }
@@ -128,6 +143,7 @@ function MainTabs() {
           let iconName;
 
           if (route.name === 'HomeTab') iconName = 'home';
+          else if (route.name === 'ReservationTab') iconName = 'calendar';
           else if (route.name === 'HelpTab') iconName = 'help-circle';
           else if (route.name === 'ProfileTab') iconName = 'user';
 
@@ -147,19 +163,23 @@ function MainTabs() {
         tabBarHideOnKeyboard: true,
       })}
     >
-      <Tab.Screen name="HomeTab" component={MainStack} options={{ title: 'Accueil' }} />
+      <Tab.Screen name="HomeTab" component={MainStackNavigator} options={{ title: 'Accueil' }} />
+      <Tab.Screen name="ReservationTab" component={ReservationStack} options={{ title: 'Réservations' }} />
       <Tab.Screen name="HelpTab" component={HelpStack} options={{ title: 'Aide' }} />
       <Tab.Screen name="ProfileTab" component={ProfileStack} options={{ title: 'Profil' }} />
     </Tab.Navigator>
   );
 }
 
-export default function App() {
+const App = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasOnboarded, setHasOnboarded] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
+  console.log('App rendering...');
+  
   useEffect(() => {
+    console.log('App useEffect running...');
     async function checkOnboardingAndAuth() {
       try {
         const onboarded = await AsyncStorage.getItem('hasOnboarded');
@@ -187,6 +207,7 @@ export default function App() {
   };
 
   if (isLoading) {
+    console.log('Loading state...');
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#5e17eb" />
@@ -194,27 +215,25 @@ export default function App() {
     );
   }
 
+  console.log('Rendering main content...');
   return (
-    <>
-      <StatusBar backgroundColor="#5e17eb" barStyle="light-content" />
-      <NavigationContainer>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          {!hasOnboarded ? (
-            <Stack.Screen name="Onboarding">
-              {() => <OnboardingNavigator onFinishOnboarding={handleFinishOnboarding} />}
-            </Stack.Screen>
-          ) : !isLoggedIn ? (
-            <Stack.Screen name={ROUTES.AUTH}>
-              {() => <AuthNavigator setIsLoggedIn={setIsLoggedIn} />}
-            </Stack.Screen>
-          ) : (
-            <Stack.Screen name={ROUTES.MAIN_TABS} component={MainTabs} />
-          )}
-        </Stack.Navigator>
-      </NavigationContainer>
-    </>
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {!hasOnboarded ? (
+          <Stack.Screen name="Onboarding">
+            {() => <OnboardingNavigator onFinishOnboarding={handleFinishOnboarding} />}
+          </Stack.Screen>
+        ) : !isLoggedIn ? (
+          <Stack.Screen name={ROUTES.AUTH}>
+            {() => <AuthNavigator setIsLoggedIn={setIsLoggedIn} />}
+          </Stack.Screen>
+        ) : (
+          <Stack.Screen name={ROUTES.MAIN_TABS} component={MainTabs} />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
   );
-}
+};
 
 const styles = StyleSheet.create({
   loadingContainer: {
@@ -239,10 +258,12 @@ const styles = StyleSheet.create({
   },
   activeIndicator: {
     position: 'absolute',
-    bottom: -4,
+    bottom: -2,
     width: 6,
     height: 6,
     borderRadius: 3,
     backgroundColor: '#5e17eb',
   },
 });
+
+export default App;

@@ -341,15 +341,13 @@ const TicketScreen = () => {
     return (
       <View key={`ticket-${index}`} style={styles.ticketContainer}>
         
-        {/* Header moderne avec dégradé */}
+        {/* Header moderne avec dégradé bleu */}
         <View style={styles.ticketHeader}>
           <View style={styles.headerGradient}>
             <View style={styles.logoSection}>
-              <Image 
-                source={require('../assets/images/logo.png')}
-                style={styles.companyLogo}
-                resizeMode="contain"
-              />
+              <View style={styles.logoContainer}>
+                <MaterialCommunityIcons name="airplane" size={24} color="#ffffff" />
+              </View>
               <View style={styles.headerText}>
                 <Text style={styles.eTicketTitle}>E-BILLET</Text>
                 <Text style={styles.companyName}>{voyageData.agencyName}</Text>
@@ -360,85 +358,118 @@ const TicketScreen = () => {
               <Text style={styles.refNumber}>{ticket.reservationId}</Text>
             </View>
           </View>
+          
+          {/* Perforations décoratives */}
+          <View style={styles.perforations}>
+            {[...Array(12)].map((_, i) => (
+              <View key={i} style={styles.perforation} />
+            ))}
+          </View>
         </View>
 
-        {/* Section voyage moderne */}
+        {/* Section voyage avec design moderne */}
         <View style={styles.journeySection}>
-          <View style={styles.journeyHeader}>
-            <Text style={styles.journeyTitle}>ITINÉRAIRE</Text>
+          <View style={styles.journeyCard}>
+            <View style={styles.routeContainer}>
+              <View style={styles.cityContainer}>
+                <View style={styles.cityCodeContainer}>
+                  <Text style={styles.cityCode}>{voyageData.departure.substring(0, 3).toUpperCase()}</Text>
+                </View>
+                <Text style={styles.cityName}>{voyageData.departure}</Text>
+                <Text style={styles.locationLabel}>DÉPART</Text>
+              </View>
+              
+              <View style={styles.routeLineContainer}>
+                <View style={styles.routeDotStart} />
+                <View style={styles.routePath}>
+                  <MaterialCommunityIcons name="airplane" size={16} color="#3498db" style={styles.airplaneIcon} />
+                </View>
+                <View style={styles.routeDotEnd} />
+              </View>
+              
+              <View style={styles.cityContainer}>
+                <View style={styles.cityCodeContainer}>
+                  <Text style={styles.cityCode}>{voyageData.destination.substring(0, 3).toUpperCase()}</Text>
+                </View>
+                <Text style={styles.cityName}>{voyageData.destination}</Text>
+                <Text style={styles.locationLabel}>ARRIVÉE</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Informations passager avec design carte */}
+        <View style={styles.passengerSection}>
+          <View style={styles.sectionHeader}>
+            <MaterialCommunityIcons name="account-circle-outline" size={20} color="#3498db" />
+            <Text style={styles.sectionTitle}>Informations du passager</Text>
           </View>
           
-          <View style={styles.routeContainer}>
-            <View style={styles.cityInfo}>
-              <Text style={styles.cityCode}>{voyageData.departure.substring(0, 3).toUpperCase()}</Text>
-              <Text style={styles.cityName}>{voyageData.departure}</Text>
-              <Text style={styles.locationLabel}>Départ</Text>
+          <View style={styles.passengerCard}>
+            <View style={styles.passengerRow}>
+              <View style={styles.passengerField}>
+                <Text style={styles.fieldLabel}>NOM COMPLET</Text>
+                <Text style={styles.fieldValue}>{ticket.fullName}</Text>
+              </View>
+              <View style={styles.passengerField}>
+                <Text style={styles.fieldLabel}>SIÈGE</Text>
+                <Text style={[styles.fieldValue, styles.seatNumber]}>{ticket.placeNumber}</Text>
+              </View>
             </View>
             
-            <View style={styles.routeLine}>
-              <View style={styles.routeDot} />
-              <View style={styles.routePath} />
-              <View style={styles.routeDot} />
+            <View style={styles.passengerRow}>
+              <View style={styles.passengerField}>
+                <Text style={styles.fieldLabel}>CONTACT</Text>
+                <Text style={styles.fieldValue}>{ticket.phone}</Text>
+              </View>
+              <View style={styles.passengerField}>
+                <Text style={styles.fieldLabel}>CLASSE</Text>
+                <Text style={styles.fieldValue}>{ticket.typePlace}</Text>
+              </View>
             </View>
             
-            <View style={styles.cityInfo}>
-              <Text style={styles.cityCode}>{voyageData.destination.substring(0, 3).toUpperCase()}</Text>
-              <Text style={styles.cityName}>{voyageData.destination}</Text>
-              <Text style={styles.locationLabel}>Arrivée</Text>
+            <View style={styles.passengerRowFull}>
+              <Text style={styles.fieldLabel}>PIÈCE D'IDENTITÉ</Text>
+              <Text style={styles.fieldValue}>{ticket.pieceIdentite}</Text>
             </View>
-          </View>
-        </View>
-
-        {/* Informations passager stylées */}
-        <View style={styles.passengerCard}>
-          <View style={styles.cardHeader}>
-            <MaterialCommunityIcons name="account-circle" size={20} color="#2c3e50" />
-            <Text style={styles.cardTitle}>PASSAGER</Text>
-          </View>
-          <View style={styles.passengerDetails}>
-            <Text style={styles.passengerName}>{ticket.fullName}</Text>
-            <Text style={styles.idDocument}>ID: {ticket.pieceIdentite}</Text>
           </View>
         </View>
 
         {/* Détails du voyage en grille moderne */}
-        <View style={styles.tripDetailsGrid}>
-          <View style={styles.detailCard}>
-            <MaterialCommunityIcons name="calendar-month" size={24} color="#e74c3c" />
-            <Text style={styles.detailLabel}>Date</Text>
-            <Text style={styles.detailValue}>{formatDate(voyageData.dateDepart)}</Text>
-          </View>
-          
-          <View style={styles.detailCard}>
-            <MaterialCommunityIcons name="clock-outline" size={24} color="#f39c12" />
-            <Text style={styles.detailLabel}>Heure</Text>
-            <Text style={styles.detailValue}>{voyageData.departureTime}</Text>
-          </View>
-          
-          <View style={styles.detailCard}>
-            <MaterialCommunityIcons name="seat" size={24} color="#9b59b6" />
-            <Text style={styles.detailLabel}>Siège</Text>
-            <Text style={styles.detailValue}>{ticket.placeNumber}</Text>
-          </View>
-          
-          <View style={styles.detailCard}>
-            <MaterialCommunityIcons name="crown" size={24} color="#27ae60" />
-            <Text style={styles.detailLabel}>Classe</Text>
-            <Text style={styles.detailValue}>{ticket.typePlace}</Text>
+        <View style={styles.tripDetailsSection}>
+          <View style={styles.detailsGrid}>
+            <View style={styles.detailCard}>
+              <View style={styles.detailIconContainer}>
+                <MaterialCommunityIcons name="calendar-month" size={20} color="#e74c3c" />
+              </View>
+              <Text style={styles.detailLabel}>Date</Text>
+              <Text style={styles.detailValue}>{formatDate(voyageData.dateDepart)}</Text>
+            </View>
+            
+            <View style={styles.detailCard}>
+              <View style={styles.detailIconContainer}>
+                <MaterialCommunityIcons name="clock-outline" size={20} color="#f39c12" />
+              </View>
+              <Text style={styles.detailLabel}>Heure</Text>
+              <Text style={styles.detailValue}>{voyageData.departureTime}</Text>
+            </View>
           </View>
         </View>
 
-        {/* Prix stylé */}
+        {/* Prix dans une section dédiée */}
         <View style={styles.priceSection}>
           <View style={styles.priceCard}>
-            <Text style={styles.priceLabel}>TARIF</Text>
-            <Text style={styles.priceAmount}>{formatPrice(ticket.prixTotal)}</Text>
+            <MaterialCommunityIcons name="credit-card-outline" size={24} color="#27ae60" />
+            <View style={styles.priceInfo}>
+              <Text style={styles.priceLabel}>TARIF TOTAL</Text>
+              <Text style={styles.priceAmount}>{formatPrice(ticket.prixTotal)}</Text>
+            </View>
           </View>
         </View>
 
-        {/* QR Code moderne */}
+        {/* QR Code avec design moderne */}
         <View style={styles.qrSection}>
-          <Text style={styles.qrLabel}>CODE DE VALIDATION</Text>
+          <Text style={styles.qrTitle}>Code de validation</Text>
           <View style={styles.qrContainer}>
             <QRCode
               value={JSON.stringify({
@@ -449,22 +480,26 @@ const TicketScreen = () => {
                 date: voyageData.dateDepart,
                 time: voyageData.departureTime
               })}
-              size={80}
+              size={100}
               backgroundColor="white"
               color="#2c3e50"
             />
           </View>
+          <Text style={styles.qrSubtitle}>Présentez ce code à l'embarquement</Text>
         </View>
 
-        {/* Note importante moderne */}
+        {/* Note importante avec design moderne */}
         <View style={styles.importantNotice}>
-          <MaterialCommunityIcons name="information-outline" size={16} color="#e67e22" />
+          <View style={styles.noticeHeader}>
+            <MaterialCommunityIcons name="information-outline" size={18} color="#e67e22" />
+            <Text style={styles.noticeTitle}>Important</Text>
+          </View>
           <Text style={styles.noticeText}>
-            Présentez ce billet à l'embarquement. Arrivée recommandée 30 min avant le départ.
+            Arrivée recommandée 30 minutes avant le départ. Munissez-vous d'une pièce d'identité valide.
           </Text>
         </View>
 
-        {/* Actions individuelles */}
+        {/* Actions individuelles avec design moderne */}
         <View style={styles.ticketActions}>
           <TouchableOpacity 
             style={[styles.actionBtn, styles.downloadBtn]} 
@@ -474,22 +509,20 @@ const TicketScreen = () => {
             {loading && selectedTicketIndex === index ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <>
-                <MaterialCommunityIcons name="download" size={18} color="#fff" />
-                <Text style={styles.actionBtnText}>Télécharger</Text>
-              </>
+              <MaterialCommunityIcons name="download" size={18} color="#fff" />
             )}
+            <Text style={styles.actionBtnText}>Télécharger</Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
-            style={[styles.actionBtn, styles.emailBtn]} 
+            style={[styles.actionBtn, styles.shareBtn]} 
             onPress={() => {
               setSelectedTicketIndex(index);
               setEmailModalVisible(true);
             }}
             disabled={loading}
           >
-            <MaterialCommunityIcons name="email-outline" size={18} color="#fff" />
+            <MaterialCommunityIcons name="share-variant" size={18} color="#fff" />
             <Text style={styles.actionBtnText}>Partager</Text>
           </TouchableOpacity>
         </View>
@@ -530,10 +563,11 @@ const TicketScreen = () => {
           </Text>
 
           <View style={styles.inputContainer}>
-            <MaterialCommunityIcons name="email-outline" size={20} color="#666" />
+            <MaterialCommunityIcons name="email-outline" size={20} color="#3498db" />
             <TextInput
               style={styles.emailInput}
               placeholder="Adresse email"
+              placeholderTextColor="#94a3b8"
               keyboardType="email-address"
               autoCapitalize="none"
               value={email}
@@ -550,7 +584,7 @@ const TicketScreen = () => {
                 setEmail('');
               }}
             >
-              <Text style={styles.modalBtnText}>Annuler</Text>
+              <Text style={styles.cancelBtnText}>Annuler</Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
@@ -561,7 +595,7 @@ const TicketScreen = () => {
               {loading ? (
                 <ActivityIndicator color="white" size="small" />
               ) : (
-                <Text style={[styles.modalBtnText, { color: 'white' }]}>Envoyer</Text>
+                <Text style={styles.sendBtnText}>Envoyer</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -575,11 +609,11 @@ const TicketScreen = () => {
       {/* Header moderne */}
       <View style={styles.header}>
         <TouchableOpacity onPress={handleGoToHome} style={styles.headerBtn}>
-          <MaterialCommunityIcons name="home-outline" size={24} color="#2c3e50" />
+          <MaterialCommunityIcons name="home-outline" size={24} color="#3498db" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Vos Billets</Text>
         <TouchableOpacity onPress={handleShare} style={styles.headerBtn}>
-          <MaterialCommunityIcons name="share-variant-outline" size={24} color="#2c3e50" />
+          <MaterialCommunityIcons name="share-variant-outline" size={24} color="#3498db" />
         </TouchableOpacity>
       </View>
 
@@ -596,8 +630,8 @@ const TicketScreen = () => {
       <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         {/* Message de confirmation moderne */}
         <View style={styles.successBanner}>
-          <View style={styles.successIcon}>
-            <MaterialCommunityIcons name="check-circle" size={40} color="#27ae60" />
+          <View style={styles.successIconContainer}>
+            <MaterialCommunityIcons name="check-circle" size={32} color="#27ae60" />
           </View>
           <View style={styles.successContent}>
             <Text style={styles.successTitle}>Réservation Confirmée</Text>
@@ -663,31 +697,31 @@ const TicketScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f0f4f8',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 16,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
-    elevation: 2,
+    elevation: 3,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 3,
+    shadowRadius: 4,
   },
   headerBtn: {
-    padding: 8,
-    borderRadius: 8,
+    padding: 10,
+    borderRadius: 12,
     backgroundColor: '#f1f5f9',
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '800',
     color: '#1e293b',
   },
   scrollContainer: {
@@ -698,54 +732,59 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    marginTop: 16,
+    marginTop: 20,
+    marginBottom: 16,
     padding: 20,
-    borderRadius: 16,
-    elevation: 2,
+    borderRadius: 20,
+    elevation: 3,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    borderLeftWidth: 4,
+    shadowRadius: 6,
+    borderLeftWidth: 5,
     borderLeftColor: '#27ae60',
   },
-  successIcon: {
+  successIconContainer: {
     marginRight: 16,
+    padding: 8,
+    backgroundColor: '#ecfdf5',
+    borderRadius: 50,
   },
   successContent: {
     flex: 1,
   },
   successTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: '#1e293b',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   successMessage: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#64748b',
   },
   ticketsWrapper: {
-    marginTop: 16,
+    marginBottom: 20,
   },
   ticketContainer: {
     backgroundColor: '#ffffff',
-    borderRadius: 20,
-    marginBottom: 16,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    borderRadius: 24,
+    marginBottom: 20,
+    elevation: 8,
+    shadowColor: '#3498db',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
     overflow: 'hidden',
   },
   ticketHeader: {
-    overflow: 'hidden',
+    position: 'relative',
   },
   headerGradient: {
     backgroundColor: '#3498db',
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    backgroundImage: 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)',
+    paddingHorizontal: 24,
+    paddingVertical: 24,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -755,27 +794,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
-  companyLogo: {
-    width: 50,
-    height: 30,
-    marginRight: 12,
-    backgroundColor: '#ffffff',
-    borderRadius: 8,
-    padding: 4,
+    logoContainer: {
+    width: 56,
+    height: 56,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
   },
-  headerText: {},
+  headerText: {
+    flex: 1,
+  },
   eTicketTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.8)',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  companyName: {
     fontSize: 18,
     fontWeight: '800',
     color: '#ffffff',
   },
-  companyName: {
-    fontSize: 12,
-    color: '#bde4ff',
-    marginTop: 2,
-  },
   referenceBox: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(0,0,0,0.2)',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
@@ -783,207 +828,291 @@ const styles = StyleSheet.create({
   },
   refLabel: {
     fontSize: 10,
-    color: '#bde4ff',
-    fontWeight: '600',
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.7)',
+    marginBottom: 2,
   },
   refNumber: {
-    fontSize: 12,
+    fontSize: 14,
+    fontWeight: '800',
     color: '#ffffff',
-    fontWeight: '700',
-    marginTop: 2,
+  },
+  perforations: {
+    position: 'absolute',
+    bottom: -8,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+  perforation: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#f0f4f8',
+    borderWidth: 3,
+    borderColor: '#e2e8f0',
   },
   journeySection: {
-    padding: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  journeyCard: {
     backgroundColor: '#f8fafc',
-  },
-  journeyHeader: {
-    marginBottom: 16,
-  },
-  journeyTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748b',
-    letterSpacing: 1,
+    borderRadius: 16,
+    padding: 16,
   },
   routeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  cityInfo: {
-    flex: 1,
+  cityContainer: {
     alignItems: 'center',
+    flex: 1,
+  },
+  cityCodeContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#3498db',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
   cityCode: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '800',
-    color: '#1e293b',
-    marginBottom: 4,
+    color: '#3498db',
   },
   cityName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#475569',
-    marginBottom: 4,
-  },
-  locationLabel: {
-    fontSize: 11,
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    fontWeight: '600',
-  },
-  routeLine: {
-    flexDirection: 'row',
-      routeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#94a3b8',
-  },
-  routePath: {
-    flex: 1,
-    height: 2,
-    backgroundColor: '#cbd5e1',
-  },
-  passengerCard: {
-    padding: 20,
-    backgroundColor: '#ffffff',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#f1f5f9',
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  cardTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748b',
-    marginLeft: 8,
-    letterSpacing: 1,
-  },
-  passengerDetails: {},
-  passengerName: {
     fontSize: 16,
     fontWeight: '700',
     color: '#1e293b',
     marginBottom: 4,
+    textAlign: 'center',
   },
-  idDocument: {
+  locationLabel: {
     fontSize: 12,
+    fontWeight: '600',
     color: '#64748b',
+    textTransform: 'uppercase',
   },
-  tripDetailsGrid: {
+  routeLineContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  routeDotStart: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#3498db',
+    marginBottom: 4,
+  },
+  routePath: {
+    width: 80,
+    height: 2,
+    backgroundColor: '#cbd5e1',
+    position: 'relative',
+  },
+  airplaneIcon: {
+    position: 'absolute',
+    left: '50%',
+    top: -8,
+    transform: [{ rotate: '90deg' }],
+  },
+  routeDotEnd: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#e74c3c',
+    marginTop: 4,
+  },
+  passengerSection: {
+    paddingHorizontal: 24,
+    marginBottom: 20,
+  },
+  sectionHeader: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1e293b',
+    marginLeft: 8,
+  },
+  passengerCard: {
     backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  passengerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  passengerRowFull: {
+    marginBottom: 0,
+  },
+  passengerField: {
+    flex: 1,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  fieldValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  seatNumber: {
+    color: '#3498db',
+    fontWeight: '700',
+  },
+  tripDetailsSection: {
+    paddingHorizontal: 24,
+    marginBottom: 20,
+  },
+  detailsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   detailCard: {
-    width: '50%',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    width: '48%',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  detailIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
   detailLabel: {
-    fontSize: 10,
-    color: '#64748b',
+    fontSize: 12,
     fontWeight: '600',
-    marginTop: 6,
+    color: '#64748b',
     marginBottom: 4,
   },
   detailValue: {
     fontSize: 14,
     fontWeight: '700',
     color: '#1e293b',
+    textAlign: 'center',
   },
   priceSection: {
-    padding: 16,
-    backgroundColor: '#f8fafc',
-    alignItems: 'center',
+    paddingHorizontal: 24,
+    marginBottom: 24,
   },
   priceCard: {
     backgroundColor: '#ffffff',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  priceInfo: {
+    marginLeft: 16,
   },
   priceLabel: {
-    fontSize: 10,
+    fontSize: 12,
+    fontWeight: '600',
     color: '#64748b',
-    fontWeight: '700',
-    textAlign: 'center',
     marginBottom: 4,
   },
   priceAmount: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
-    color: '#1e293b',
-    textAlign: 'center',
+    color: '#27ae60',
   },
   qrSection: {
-    padding: 20,
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    paddingHorizontal: 24,
+    marginBottom: 24,
   },
-  qrLabel: {
-    fontSize: 12,
+  qrTitle: {
+    fontSize: 16,
     fontWeight: '700',
-    color: '#64748b',
+    color: '#1e293b',
     marginBottom: 12,
-    letterSpacing: 1,
   },
   qrContainer: {
-    padding: 16,
     backgroundColor: '#ffffff',
-    borderRadius: 8,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  qrSubtitle: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 12,
+    textAlign: 'center',
   },
   importantNotice: {
+    backgroundColor: '#fff9f0',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 24,
+    marginBottom: 24,
+    borderLeftWidth: 4,
+    borderLeftColor: '#e67e22',
+  },
+  noticeHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#fffaf0',
-    borderTopWidth: 1,
-    borderColor: '#fef3c7',
+    marginBottom: 8,
+  },
+  noticeTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#e67e22',
+    marginLeft: 8,
   },
   noticeText: {
-    fontSize: 12,
-    color: '#92400e',
-    marginLeft: 8,
-    flex: 1,
+    fontSize: 13,
+    color: '#854d0e',
+    lineHeight: 20,
   },
   ticketActions: {
     flexDirection: 'row',
-    padding: 16,
-    backgroundColor: '#ffffff',
-    borderTopWidth: 1,
-    borderColor: '#f1f5f9',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingBottom: 24,
   },
   actionBtn: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    borderRadius: 8,
-    marginHorizontal: 8,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    width: '48%',
   },
   downloadBtn: {
     backgroundColor: '#3498db',
   },
-  emailBtn: {
+  shareBtn: {
     backgroundColor: '#10b981',
   },
   actionBtnText: {
@@ -993,44 +1122,46 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   ticketDivider: {
-    height: 16,
+    height: 1,
+    backgroundColor: '#e2e8f0',
+    marginVertical: 24,
   },
   globalActions: {
-    marginTop: 8,
-    marginBottom: 24,
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 16,
-    elevation: 2,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 20,
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
   globalTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#64748b',
-    marginBottom: 12,
+    color: '#1e293b',
+    marginBottom: 16,
     textAlign: 'center',
   },
   globalBtns: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   globalBtn: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    borderRadius: 8,
-    marginHorizontal: 8,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    width: '48%',
   },
   downloadAllBtn: {
     backgroundColor: '#3b82f6',
   },
   emailAllBtn: {
-    backgroundColor: '#10b981',
+    backgroundColor: '#8b5cf6',
   },
   globalBtnText: {
     fontSize: 14,
@@ -1039,43 +1170,25 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   bottomActions: {
-    padding: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 16,
     backgroundColor: '#ffffff',
     borderTopWidth: 1,
-    borderColor: '#e2e8f0',
+    borderTopColor: '#e2e8f0',
   },
   homeButton: {
+    backgroundColor: '#3498db',
+    borderRadius: 12,
+    paddingVertical: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3498db',
-    paddingVertical: 14,
-    borderRadius: 8,
   },
   homeButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#ffffff',
-    marginLeft: 8,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  loadingCard: {
-    backgroundColor: '#ffffff',
-    padding: 24,
-    borderRadius: 16,
-    alignItems: 'center',
-    elevation: 4,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#64748b',
+    marginLeft: 10,
   },
   modalOverlay: {
     flex: 1,
@@ -1085,10 +1198,9 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     backgroundColor: '#ffffff',
-    borderRadius: 16,
+    borderRadius: 20,
     width: '90%',
-    maxWidth: 400,
-    padding: 20,
+    padding: 24,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1097,7 +1209,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
     color: '#1e293b',
   },
@@ -1107,49 +1219,78 @@ const styles = StyleSheet.create({
   modalSubtitle: {
     fontSize: 14,
     color: '#64748b',
-    marginBottom: 20,
+    marginBottom: 24,
+    textAlign: 'center',
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 24,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 20,
   },
   emailInput: {
     flex: 1,
     fontSize: 16,
-    marginLeft: 8,
     color: '#1e293b',
+    marginLeft: 12,
   },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
   modalBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    width: '48%',
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelBtn: {
     backgroundColor: '#f1f5f9',
-    marginRight: 8,
   },
   sendBtn: {
     backgroundColor: '#3498db',
-    marginLeft: 8,
   },
-  modalBtnText: {
+  cancelBtnText: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#64748b',
   },
-  }
+  sendBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  loadingCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#64748b',
+  },
 });
-
 
 export default TicketScreen;

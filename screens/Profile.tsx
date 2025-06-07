@@ -15,8 +15,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { auth, db } from '../screens/firebase';
-import { doc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
+import { auth, db } from '../config/firebase';
+import { doc, getDoc, updateDoc, collection, query, where, getDocs, enableNetwork, disableNetwork } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Animatable from 'react-native-animatable';
 import { ROUTES } from '../App';
@@ -28,13 +28,31 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
   const [userProfile, setUserProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
   const [statistics, setStatistics] = useState({
     totalOrders: 0,
     totalSpent: 0,
     loyaltyPoints: 0
   });
 
-  // Fonction pour récupérer les données utilisateur depuis AsyncStorage
+  // Fonction utilitaire pour retry avec backoff exponentiel
+  const retryWithBackoff = async (fn, maxRetries = 3, delay = 1000) => {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        console.log(`Tentative ${i + 1} échouée:`, error.message);
+        
+        if (i === maxRetries - 1) {
+          throw error;
+        }
+        
+        // Attendre avant la prochaine tentative (backoff exponentiel)
+        await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+      }
+    }
+  };
+
   const getUserDataFromStorage = async () => {
     try {
       const keys = [
@@ -58,47 +76,134 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
     }
   };
 
-  // Fonction pour récupérer les données depuis Firestore
   const getUserDataFromFirestore = async (userId) => {
     try {
-      const userDocRef = doc(db, 'users', userId);
-      const userDocSnap = await getDoc(userDocRef);
+      return await retryWithBackoff(async () => {
+        const userDocRef = doc(db, 'users', userId);
+        const userDocSnap = await getDoc(userDocRef);
 
-      if (userDocSnap.exists()) {
-        const userData = userDocSnap.data();
-        
-        // Mettre à jour les données locales
-        await AsyncStorage.multiSet([
-          ['userEmail', userData.email || ''],
-          ['userFirstName', userData.firstName || ''],
-          ['userLastName', userData.lastName || ''],
-          ['userFullName', userData.fullName || ''],
-          ['userPhone', userData.phone || ''],
-          ['userRole', userData.role || 'client'],
-          ['userStatus', userData.status || 'active'],
-          ['userProfileImage', userData.profileImage || ''],
-          ['userCreatedAt', userData.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()],
-        ]);
+        if (userDocSnap.exists()) {
+          const userData = userDocSnap.data();
+          
+          // Sauvegarder en cache local pour utilisation offline
+          await AsyncStorage.multiSet([
+            ['userEmail', userData.email || ''],
+            ['userFirstName', userData.firstName || ''],
+            ['userLastName', userData.lastName || ''],
+            ['userFullName', userData.fullName || ''],
+            ['userPhone', userData.phone || ''],
+            ['userRole', userData.role || 'client'],
+            ['userStatus', userData.status || 'active'],
+            ['userProfileImage', userData.profileImage || ''],
+            ['userCreatedAt', userData.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()],
+          ]);
 
-        return userData;
-      }
-      return null;
+          return userData;
+        }
+        return null;
+      });
     } catch (error) {
       console.error('Erreur lors de la récupération des données Firestore:', error);
+      setIsOnline(false);
+      
+      // En cas d'erreur, utiliser les données en cache
       return null;
     }
   };
 
-  // Fonction principale pour charger le profil utilisateur
+  const getUserReservationStats = async (userId) => {
+    try {
+      console.log('Récupération des statistiques pour userId:', userId);
+      
+      // Essayer de récupérer depuis le cache local d'abord
+      const cachedStats = await AsyncStorage.getItem(`userStats_${userId}`);
+      if (cachedStats && !isOnline) {
+        console.log('Utilisation des statistiques en cache (mode offline)');
+        return JSON.parse(cachedStats);
+      }
+
+      const stats = await retryWithBackoff(async () => {
+        const reservationsRef = collection(db, 'reservations');
+        const q = query(reservationsRef, where('userId', '==', userId));
+        const querySnapshot = await getDocs(q);
+        
+        console.log('Nombre de réservations trouvées:', querySnapshot.size);
+        
+        let totalOrders = querySnapshot.size;
+        let totalSpent = 0;
+        let loyaltyPoints = 0;
+        
+        querySnapshot.forEach((doc) => {
+          const reservation = doc.data();
+          console.log('Réservation trouvée:', reservation);
+          
+          const prix = parseFloat(reservation.prixTotal) || parseFloat(reservation.prix) || 0;
+          totalSpent += prix;
+          loyaltyPoints += Math.floor(prix / 1000);
+        });
+        
+        const calculatedStats = {
+          totalOrders,
+          totalSpent,
+          loyaltyPoints
+        };
+        
+        // Sauvegarder en cache
+        await AsyncStorage.setItem(`userStats_${userId}`, JSON.stringify(calculatedStats));
+        
+        return calculatedStats;
+      });
+
+      console.log('Statistiques calculées:', stats);
+      setIsOnline(true);
+      return stats;
+      
+    } catch (error) {
+      console.error('Erreur lors de la récupération des statistiques:', error);
+      setIsOnline(false);
+      
+      // Essayer de récupérer depuis le cache en cas d'erreur
+      try {
+        const cachedStats = await AsyncStorage.getItem(`userStats_${userId}`);
+        if (cachedStats) {
+          console.log('Utilisation des statistiques en cache après erreur');
+          return JSON.parse(cachedStats);
+        }
+      } catch (cacheError) {
+        console.error('Erreur lors de la récupération du cache:', cacheError);
+      }
+      
+      return {
+        totalOrders: 0,
+        totalSpent: 0,
+        loyaltyPoints: 0
+      };
+    }
+  };
+
+  const checkNetworkConnection = async () => {
+    try {
+      // Tentative de reconnexion à Firestore
+      await enableNetwork(db);
+      setIsOnline(true);
+      console.log('Connexion Firestore rétablie');
+    } catch (error) {
+      setIsOnline(false);
+      console.log('Toujours hors ligne:', error.message);
+    }
+  };
+
   const loadUserProfile = async (showLoader = true) => {
     if (showLoader) setIsLoading(true);
     
     try {
-      // Récupérer d'abord les données locales
+      let userId = null;
       const localData = await getUserDataFromStorage();
       
       if (localData && localData.id) {
-        // Afficher les données locales immédiatement
+        userId = localData.id;
+        
+        // Charger d'abord les données locales
         setUserProfile({
           id: localData.id,
           email: localData.email,
@@ -112,12 +217,12 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
           createdAt: localData.createdat,
         });
 
-        // Puis récupérer les données à jour depuis Firestore
+        // Essayer de récupérer les données Firestore en arrière-plan
         const firestoreData = await getUserDataFromFirestore(localData.id);
         
         if (firestoreData) {
           setUserProfile({
-            id: firestoreData.uid || firestoreData.id,
+            id: firestoreData.uid || firestoreData.id || localData.id,
             email: firestoreData.email,
             firstName: firestoreData.firstName,
             lastName: firestoreData.lastName,
@@ -128,20 +233,15 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
             profileImage: firestoreData.profileImage,
             createdAt: firestoreData.createdAt?.toDate?.()?.toISOString() || firestoreData.createdAt,
           });
-
-          // Mettre à jour les statistiques si disponibles
-          if (firestoreData.statistics) {
-            setStatistics(firestoreData.statistics);
-          }
         }
       } else {
-        // Si pas de données locales, essayer de récupérer depuis Firebase Auth
         const currentUser = auth.currentUser;
         if (currentUser) {
+          userId = currentUser.uid;
           const firestoreData = await getUserDataFromFirestore(currentUser.uid);
           if (firestoreData) {
             setUserProfile({
-              id: firestoreData.uid || firestoreData.id,
+              id: firestoreData.uid || firestoreData.id || currentUser.uid,
               email: firestoreData.email,
               firstName: firestoreData.firstName,
               lastName: firestoreData.lastName,
@@ -155,22 +255,39 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
           }
         }
       }
+      
+      if (userId) {
+        console.log('Chargement des statistiques pour:', userId);
+        const stats = await getUserReservationStats(userId);
+        console.log('Statistiques chargées:', stats);
+        setStatistics(stats);
+      }
+      
     } catch (error) {
       console.error('Erreur lors du chargement du profil:', error);
-      Alert.alert('Erreur', 'Impossible de charger les informations du profil.');
+      
+      // Ne pas afficher d'alerte si c'est juste un problème de connectivité
+      if (!error.message.includes('offline') && !error.message.includes('network')) {
+        Alert.alert('Erreur', 'Impossible de charger les informations du profil.');
+      }
     } finally {
       setIsLoading(false);
       setRefreshing(false);
     }
   };
 
-  // Fonction de rafraîchissement
-  const onRefresh = useCallback(() => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    loadUserProfile(false);
+    
+    // Vérifier la connexion avant de rafraîchir
+    await checkNetworkConnection();
+    
+    // Attendre un peu pour que la reconnexion se fasse
+    setTimeout(() => {
+      loadUserProfile(false);
+    }, 500);
   }, []);
 
-  // Fonction de déconnexion
   const handleLogout = () => {
     Alert.alert(
       'Déconnexion',
@@ -183,23 +300,26 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
           onPress: async () => {
             try {
               setIsLoading(true);
-              
-              // Déconnexion Firebase
               await auth.signOut();
               
-              // Nettoyer AsyncStorage
-              await AsyncStorage.multiRemove([
+              // Nettoyer le cache
+              const keysToRemove = [
                 'authToken', 'userId', 'userEmail', 'userFirstName', 
                 'userLastName', 'userFullName', 'userPhone', 'userRole', 
                 'userStatus', 'userProfileImage', 'userCreatedAt'
-              ]);
+              ];
               
-              // Mettre à jour l'état d'authentification
+              // Ajouter les clés de cache des statistiques
+              if (userProfile?.id) {
+                keysToRemove.push(`userStats_${userProfile.id}`);
+              }
+              
+              await AsyncStorage.multiRemove(keysToRemove);
+              
               if (setIsLoggedIn) {
                 setIsLoggedIn(false);
               }
               
-              // Redirection vers la page de connexion
               navigation.reset({
                 index: 0,
                 routes: [{ name: ROUTES.LOGIN }],
@@ -217,7 +337,6 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
     );
   };
 
-  // Fonction pour formater la date
   const formatDate = (dateString) => {
     if (!dateString) return 'Date inconnue';
     
@@ -235,31 +354,44 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
     }
   };
 
-  // Charger le profil au montage du composant
   useFocusEffect(
     useCallback(() => {
       loadUserProfile();
     }, [])
   );
 
-  // Fonction pour naviguer vers l'édition du profil
   const navigateToEditProfile = () => {
     navigation.navigate('EditProfile', { userProfile });
   };
 
-  // Composant de chargement
+  const navigateToReservations = () => {
+    // Use the full path if it's in a nested navigator
+    navigation.navigate('MainStack', {
+      screen: 'ReservationHistory'
+    });
+    
+    // Or if it's in the same stack, just use:
+    // navigation.navigate('ReservationHistory');
+  };
+
+  const handleNavigateToHistory = () => {
+    navigation.navigate(ROUTES.RESERVATION_HISTORY);
+  };
+
   if (isLoading && !userProfile) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007aff" />
           <Text style={styles.loadingText}>Chargement du profil...</Text>
+          {!isOnline && (
+            <Text style={styles.offlineText}>Mode hors ligne</Text>
+          )}
         </View>
       </SafeAreaView>
     );
   }
 
-  // Composant d'erreur si pas de données utilisateur
   if (!userProfile) {
     return (
       <SafeAreaView style={styles.container}>
@@ -269,6 +401,11 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
           <Text style={styles.errorSubtitle}>
             Impossible de charger les informations du profil
           </Text>
+          {!isOnline && (
+            <Text style={styles.offlineText}>
+              Vérifiez votre connexion internet
+            </Text>
+          )}
           <TouchableOpacity style={styles.retryButton} onPress={() => loadUserProfile()}>
             <Text style={styles.retryButtonText}>Réessayer</Text>
           </TouchableOpacity>
@@ -279,11 +416,23 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Indicateur de connexion */}
+      {!isOnline && (
+        <View style={styles.offlineIndicator}>
+          <Icon name="cloud-offline-outline" size={16} color="#ffffff" />
+          <Text style={styles.offlineIndicatorText}>Mode hors ligne</Text>
+        </View>
+      )}
+
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh}
+            title={!isOnline ? "Reconnexion..." : "Actualiser"}
+          />
         }
         showsVerticalScrollIndicator={false}
       >
@@ -341,16 +490,21 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
 
         {/* Statistiques */}
         <Animatable.View animation="fadeInUp" duration={800} delay={400} style={styles.statsContainer}>
-          <Text style={styles.sectionTitle}>Statistiques</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Mes Statistiques</Text>
+            <TouchableOpacity onPress={navigateToReservations}>
+              <Text style={styles.seeAllText}>Voir tout</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.statsRow}>
-            <View style={styles.statCard}>
+            <TouchableOpacity style={styles.statCard} onPress={navigateToReservations}>
               <Icon name="bag-outline" size={24} color="#007aff" />
               <Text style={styles.statNumber}>{statistics.totalOrders}</Text>
-              <Text style={styles.statLabel}>Reservations</Text>
-            </View>
+              <Text style={styles.statLabel}>Réservations</Text>
+            </TouchableOpacity>
             <View style={styles.statCard}>
               <Icon name="card-outline" size={24} color="#34c759" />
-              <Text style={styles.statNumber}>{statistics.totalSpent} FCFA</Text>
+              <Text style={styles.statNumber}>{statistics.totalSpent.toLocaleString('fr-FR')} FCFA</Text>
               <Text style={styles.statLabel}>Dépensé</Text>
             </View>
             <View style={styles.statCard}>
@@ -359,6 +513,11 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
               <Text style={styles.statLabel}>Points</Text>
             </View>
           </View>
+          {!isOnline && (
+            <Text style={styles.cacheIndicator}>
+              * Données en cache (dernière mise à jour)
+            </Text>
+          )}
         </Animatable.View>
 
         {/* Informations détaillées */}
@@ -403,6 +562,13 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
           <Text style={styles.sectionTitle}>Actions rapides</Text>
           
           <ActionButton
+            icon="ticket-outline"
+            title="Mes Réservations"
+            subtitle="Voir l'historique des voyages"
+            onPress={navigateToReservations}
+          />
+          
+          <ActionButton
             icon="settings-outline"
             title="Paramètres"
             subtitle="Gérer les préférences"
@@ -414,7 +580,6 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
   );
 };
 
-// Composant pour afficher une ligne d'information
 const InfoRow = ({ icon, label, value, valueColor = '#1d1d1f' }) => (
   <View style={styles.infoRow}>
     <View style={styles.infoLeft}>
@@ -425,7 +590,6 @@ const InfoRow = ({ icon, label, value, valueColor = '#1d1d1f' }) => (
   </View>
 );
 
-// Composant pour les boutons d'action
 const ActionButton = ({ icon, title, subtitle, onPress }) => (
   <TouchableOpacity style={styles.actionButton} onPress={onPress} activeOpacity={0.7}>
     <View style={styles.actionLeft}>
@@ -446,6 +610,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f2f2f7',
   },
+  offlineIndicator: {
+    backgroundColor: '#ff9500',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  offlineIndicatorText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
   scrollView: {
     flex: 1,
   },
@@ -461,6 +639,12 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
     color: '#8e8e93',
+  },
+  offlineText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#ff9500',
+    fontStyle: 'italic',
   },
   errorContainer: {
     flex: 1,
@@ -609,11 +793,21 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 20,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '600',
     color: '#1d1d1f',
-    marginBottom: 16,
+  },
+  seeAllText: {
+    fontSize: 16,
+    color: '#007aff',
+    fontWeight: '500',
   },
   statsRow: {
     flexDirection: 'row',
@@ -643,6 +837,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#8e8e93',
     fontWeight: '500',
+  },
+  cacheIndicator: {
+    fontSize: 12,
+    color: '#ff9500',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 8,
   },
   detailsContainer: {
     backgroundColor: '#ffffff',

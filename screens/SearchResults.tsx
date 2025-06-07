@@ -86,7 +86,7 @@ const SearchResultsScreen = () => {
     console.log('Navigation vers SeatSelection avec:', { voyage, agencyDetails });
     
     try {
-      navigation.navigate('SeatSelection', {  // Changé de 'SeatSelectionScreen' à 'SeatSelection'
+      navigation.navigate('SeatSelection', { 
         voyage,
         agencyDetails,
         departure,

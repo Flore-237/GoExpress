@@ -1,3 +1,4 @@
+// android/build.gradle
 buildscript {
     ext {
         buildToolsVersion = "35.0.0"
@@ -12,12 +13,18 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath("com.android.tools.build:gradle")
+        classpath("com.android.tools.build:gradle:8.4.0")
         classpath("com.facebook.react:react-native-gradle-plugin")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
-        classpath 'com.google.gms:google-services:4.4.2'
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+        classpath("com.google.gms:google-services:4.4.2")
     }
 }
 
+allprojects {
+    repositories {
+        google()  // Make sure this line is present
+        mavenCentral()
+    }
+}
 
 apply plugin: "com.facebook.react.rootproject"
