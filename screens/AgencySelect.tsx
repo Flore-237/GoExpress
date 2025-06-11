@@ -14,12 +14,22 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/Ionicons';
-import LinearGradient from 'react-native-linear-gradient'; 
+import LinearGradient from 'react-native-linear-gradient';
+import { ROUTES } from '../constants/routes';
+import { LoginScreen } from './screens/Login';
 
 const { width } = Dimensions.get('window');
 
-const Agency_select = () => {
-  const [agencies, setAgencies] = useState([]);
+interface Agency {
+  id: string;
+  name: string;
+  services?: string[];
+  rating?: number;
+  ratingCount?: number;
+}
+
+const AgencySelect = () => {
+  const [agencies, setAgencies] = useState<Agency[]>([]);
   const [loading, setLoading] = useState(true);
   const navigation = useNavigation();
 
@@ -43,9 +53,8 @@ const Agency_select = () => {
     fetchAgencies();
   }, []);
 
-  const handleAgencySelect = (agency) => {
-    // Correction: Changé de 'AgencyDetailScreen' à 'AgencyDetail'
-    navigation.navigate('AgencyDetail', { 
+  const handleAgencySelect = (agency: Agency) => {
+    navigation.navigate(ROUTES.AGENCY_DETAIL, { 
       agencyId: agency.id, 
       agencyName: agency.name 
     });
@@ -56,7 +65,7 @@ const Agency_select = () => {
   };
 
   // Get agency logo based on ID
-  const getAgencyLogo = (agencyId) => { 
+  const getAgencyLogo = (agencyId: string) => { 
     switch(agencyId) {
       case 'general_express_voyage':
         return require('../assets/images/GeneraleExpress.png');
@@ -64,7 +73,6 @@ const Agency_select = () => {
         return require('../assets/images/BucaVoyage.jpg');
       default:
         return require('../assets/images/touristique.jpg');
-
     }
   };
 
@@ -274,4 +282,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default Agency_select;
+export default AgencySelect;

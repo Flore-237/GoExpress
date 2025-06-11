@@ -15,15 +15,65 @@ import {
 import firestore from '@react-native-firebase/firestore';
 import Feather from 'react-native-vector-icons/Feather';
 import { format } from 'date-fns';
-import fr from 'date-fns/locale/fr';
-import { ROUTES } from '../App';
+import { fr } from 'date-fns/locale/fr';
+import { ROUTES } from '../constants/routes';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 const { width } = Dimensions.get('window');
 
-const AgencyDetailScreen = ({ route, navigation }) => {
-  const { agencyId, agencyName } = route.params;
-  const [agency, setAgency] = useState(null);
-  const [trips, setTrips] = useState([]);
+interface Trip {
+  id: string;
+  departure?: string;
+  destination?: string;
+  dateDepart?: string;
+  heureDepart?: string;
+  prixClassique?: number;
+  prixVIP?: number;
+  placesClassiqueDisponibles?: number;
+  placesVIPDisponibles?: number;
+}
+
+interface Agency {
+  id: string;
+  name: string;
+  bannerUrl?: string;
+  logoUrl?: string;
+  services?: string[];
+  contactInfo?: {
+    phone?: string;
+    email?: string;
+    address?: string;
+  };
+}
+
+type RootStackParamList = {
+  'SeatSelection': {
+    tripId: string;
+    agencyId: string;
+    tripDetails: {
+      id: string;
+      origin: string;
+      destination: string;
+      departureDate: string;
+      departureTime: string;
+      prixClassique: number;
+      prixVIP: number;
+      placesClassiqueDisponibles: number;
+      placesVIPDisponibles: number;
+      agencyName: string;
+    };
+  };
+};
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const AgencyDetailScreen = () => {
+  const navigation = useNavigation<NavigationProp>();
+  const route = useRoute();
+  const { agencyId, agencyName } = route.params as { agencyId: string; agencyName: string };
+  const [agency, setAgency] = useState<Agency | null>(null);
+  const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [activeTab, setActiveTab] = useState('info');
@@ -35,9 +85,11 @@ const AgencyDetailScreen = ({ route, navigation }) => {
         
         const agencyDoc = await firestore().collection('agencies').doc(agencyId).get();
         if (agencyDoc.exists) {
+          const data = agencyDoc.data();
           setAgency({
             id: agencyDoc.id,
-            ...agencyDoc.data()
+            name: data?.name || '',
+            ...data
           });
         } else {
           throw new Error("Agence non trouvée");
@@ -48,11 +100,19 @@ const AgencyDetailScreen = ({ route, navigation }) => {
           .where('agencyId', '==', agencyId)
           .get();
           
-        const tripsData = [];
+        const tripsData: Trip[] = [];
         tripsQuery.forEach(doc => {
+          const data = doc.data();
           tripsData.push({
             id: doc.id,
-            ...doc.data()
+            departure: data.departure,
+            destination: data.destination,
+            dateDepart: data.dateDepart,
+            heureDepart: data.heureDepart,
+            prixClassique: data.prixClassique,
+            prixVIP: data.prixVIP,
+            placesClassiqueDisponibles: data.placesClassiqueDisponibles,
+            placesVIPDisponibles: data.placesVIPDisponibles
           });
         });
         
@@ -63,8 +123,10 @@ const AgencyDetailScreen = ({ route, navigation }) => {
           if (dateA < dateB) return -1;
           if (dateA > dateB) return 1;
           
-          if (a.heureDepart < b.heureDepart) return -1;
-          if (a.heureDepart > b.heureDepart) return 1;
+          if (a.heureDepart && b.heureDepart) {
+            if (a.heureDepart < b.heureDepart) return -1;
+            if (a.heureDepart > b.heureDepart) return 1;
+          }
           
           return 0;
         });
@@ -81,19 +143,19 @@ const AgencyDetailScreen = ({ route, navigation }) => {
     fetchAgencyDetails();
   }, [agencyId]);
 
-  const handleCall = (phone) => {
+  const handleCall = (phone: string) => {
     if (phone) {
       Linking.openURL(`tel:${phone}`);
     }
   };
 
-  const handleEmail = (email) => {
+  const handleEmail = (email: string) => {
     if (email) {
       Linking.openURL(`mailto:${email}`);
     }
   };
 
-  const handleBookTrip = (trip) => {
+  const handleBookTrip = (trip: Trip) => {
     const tripDetails = {
       id: trip.id,
       origin: trip.departure || '',
@@ -107,7 +169,7 @@ const AgencyDetailScreen = ({ route, navigation }) => {
       agencyName: agency?.name || agencyName
     };
     
-    navigation.navigate(ROUTES.SEAT_SELECTION, { 
+    navigation.navigate('SeatSelection', { 
       tripId: trip.id,
       agencyId,
       tripDetails: tripDetails

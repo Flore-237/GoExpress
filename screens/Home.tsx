@@ -11,18 +11,31 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, NavigationProp } from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/Feather';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import { Dropdown } from 'react-native-element-dropdown';
 import moment from 'moment';
-import { ROUTES } from '../App';
+import { ROUTES } from '../constants/routes';
 import 'moment/locale/fr';
 
+type RootStackParamList = {
+  SEARCH_RESULTS: {
+    departure: string;
+    destination: string;
+    date?: string;
+    time?: string;
+  };
+  AGENCY_SELECT: undefined;
+  LOGIN: undefined;
+  PROFILE: undefined;
+  // ...ajoutez ici vos autres routes
+};
+
 const HomeScreen = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const [departureCity, setDepartureCity] = useState(null);
   const [destinationCity, setDestinationCity] = useState(null);
   const [departureDate, setDepartureDate] = useState(null);
@@ -33,6 +46,12 @@ const HomeScreen = () => {
   const [destinationCities, setDestinationCities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [formData, setFormData] = useState({
+    departure: '',
+    destination: '',
+    date: new Date(),
+    time: new Date(),
+  });
 
   useEffect(() => {
     fetchVoyages();
@@ -90,30 +109,32 @@ const HomeScreen = () => {
     setTimePickerVisible(false);
   };
 
+  const resetSearchForm = () => {
+    setFormData({
+      departure: '',
+      destination: '', 
+      date: new Date(),
+      time: new Date(),
+    });
+  };
+
   const handleSearch = () => {
-    // 1. Validation des champs obligatoires
+    // Vérifiez que les champs requis sont remplis
     if (!departureCity || !destinationCity) {
-      Alert.alert(
-        'Information manquante',
-        'Veuillez sélectionner une ville de départ et une destination'
-      );
+      Alert.alert('Erreur', 'Veuillez sélectionner une ville de départ et d\'arrivée');
       return;
     }
 
-    // 2. Formatage des paramètres
-    const searchParams = {
+    // Navigation vers l'écran des résultats avec les paramètres
+    navigation.navigate(ROUTES.SEARCH_RESULTS, {
       departure: departureCity,
       destination: destinationCity,
-      ...(departureDate && { date: moment(departureDate).format('YYYY-MM-DD') }),
-      ...(departureTime && { time: moment(departureTime).format('HH:mm') })
-    };
+      date: departureDate ? moment(departureDate).format('YYYY-MM-DD') : undefined,
+      time: departureTime ? moment(departureTime).format('HH:mm') : undefined
+    });
 
-    // 3. Navigation sécurisée
-    if (navigation && navigation.navigate) {
-      navigation.navigate(ROUTES.SEARCH_RESULTS, searchParams);
-    } else {
-      console.error("L'objet navigation n'est pas disponible");
-    }
+    // Réinitialiser le formulaire après la navigation
+    resetSearchForm();
   };
 
   const navigateToAgencySelection = () => {
@@ -185,6 +206,7 @@ const HomeScreen = () => {
                 value={departureCity}
                 onChange={item => {
                   setDepartureCity(item.value);
+                  setFormData(prev => ({ ...prev, departure: item.value }));
                 }}
               />
               
@@ -201,6 +223,7 @@ const HomeScreen = () => {
                 value={destinationCity}
                 onChange={item => {
                   setDestinationCity(item.value);
+                  setFormData(prev => ({ ...prev, destination: item.value }));
                 }}
               />
               
