@@ -28,7 +28,7 @@ const PaymentMethodSelector = ({ selectedMethod, onSelect }) => {
             selectedMethod === method.id && styles.selectedMethod,
             { borderColor: method.color }
           ]}
-          onPress={() => onSelect(method.id)}
+          onPress={() => onSelect(method.id)}u
         >
           <View style={styles.methodContent}>
             <Icon 

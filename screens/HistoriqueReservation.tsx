@@ -628,6 +628,11 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
   const confirmedCount = reservations.filter(r => r.statut === 'confirmé').length;
   const cancelledCount = reservations.filter(r => r.statut === 'annulé').length;
 
+  // Fonction pour rediriger vers la homepage
+  const goToHome = () => {
+    navigation.navigate('Home');
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -702,7 +707,7 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
           title={searchQuery.trim() ? "Aucun résultat" : activeFilter === 'upcoming' ? "Aucun voyage à venir" : activeFilter === 'past' ? "Aucun voyage passé" : activeFilter === 'cancelled' ? "Aucune réservation annulée" : "Aucune réservation"}
           message={searchQuery.trim() ? "Aucune réservation ne correspond à votre recherche" : activeFilter === 'upcoming' ? "Vous n'avez aucun voyage prévu pour le moment" : activeFilter === 'past' ? "Vous n'avez aucun voyage terminé" : activeFilter === 'cancelled' ? "Vous n'avez aucune réservation annulée" : "Vous n'avez pas encore effectué de réservation"}
           actionText={searchQuery.trim() ? "Effacer la recherche" : "Réserver un voyage"}
-          onActionPress={searchQuery.trim() ? () => setSearchQuery('') : () => navigation.navigate('Search')}
+          onActionPress={searchQuery.trim() ? () => setSearchQuery('') : goToHome}
         />
       ) : (
         <FlatList

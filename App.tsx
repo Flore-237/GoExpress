@@ -21,14 +21,13 @@ import Payment from './screens/Payment';
 import Profile from './screens/Profile';
 import SearchResults from './screens/SearchResults';
 import SeatSelection from './screens/Seat_selection';
-import Tickets from './screens/Ticket';
+import Ticket from './screens/Ticket';
 import WelcomeScreen from './screens/WelcomScreen';
 import FeaturesScreen from './screens/FutureScreen';
 import FeaturesScreen3 from './screens/FutureScreen3';
 import LoginScreen from './screens/Login';
 import RegistrationScreen from './screens/singUp';
 import HistoriqueReservation from './screens/HistoriqueReservation';
-import TicketScreen from './screens/Ticket';
 
 // Initialisation des navigateurs
 const Stack = createNativeStackNavigator();
@@ -61,11 +60,15 @@ function MainStackNavigator() {
       <Stack.Screen name={ROUTES.AGENCY_DETAIL} component={AgencyDetail} />
       <Stack.Screen name={ROUTES.SEAT_SELECTION} component={SeatSelection} />
       <Stack.Screen name={ROUTES.PAYMENT} component={Payment} />
-      <Stack.Screen name={ROUTES.TICKET} component={Tickets} />
-      <Stack.Screen name="TicketScreen" component={TicketScreen} />
+      <Stack.Screen name={ROUTES.TICKET} component={Ticket} />
       <Stack.Screen 
-        name={ROUTES.RESERVATION_HISTORY} 
+        name={ROUTES.HISTORIQUE_RESERVATION} 
         component={HistoriqueReservation}
+        options={{ headerShown: true }}
+      />
+      <Stack.Screen 
+        name={ROUTES.DETAIL_RESERVATION} 
+        component={DetailReservation}
         options={{ headerShown: true }}
       />
     </Stack.Navigator>

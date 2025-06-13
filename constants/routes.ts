@@ -36,4 +36,5 @@ export const ROUTES = {
   RESERVATION_HISTORY: 'ReservationHistory',
   HISTORIQUE_RESERVATION: 'HistoriqueReservation',
   DETAIL_RESERVATION: 'DetailReservation',
+  TICKETS: 'Tickets',
 };

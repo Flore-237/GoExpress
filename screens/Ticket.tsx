@@ -25,6 +25,7 @@ import ViewShot, { ViewShotProperties, captureRef } from 'react-native-view-shot
 import { ROUTES } from '../constants/routes';
 import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
+import LinearGradient from 'react-native-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 
@@ -50,6 +51,24 @@ type RootStackParamList = {
       paymentMethod: string;
       confirmedAt: Date;
     };
+    tickets?: Array<{
+      agencyName: string;
+      logoUrl: string;
+      departure: string;
+      destination: string;
+      departureTime: string;
+      departureDate: string;
+      seatType: string;
+      numberOfSeats: number;
+      totalPrice: number;
+      seats: Array<{ number: string }>;
+      fullName: string;
+      email: string;
+      phone: string;
+      gender: string;
+      reservationId: string;
+      paymentMethod: string;
+    }>;
     reservationId?: string;
   };
 };
@@ -70,9 +89,10 @@ const TicketScreen = () => {
   const { user } = useAuth();
   const viewShotRef = useRef<ViewShot>(null);
   
-  const { ticketData, reservationId } = route.params || {};
+  const { ticketData, tickets, reservationId } = route.params || {};
   const [isLoading, setIsLoading] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [currentTicketIndex, setCurrentTicketIndex] = useState(0);
   
   // État pour les données du ticket
   const [ticket, setTicket] = useState({
@@ -100,7 +120,31 @@ const TicketScreen = () => {
   // Récupération des données de réservation
   useEffect(() => {
     const fetchTicketData = async () => {
-      if (ticketData) {
+      if (tickets && tickets.length > 0) {
+        const currentTicket = tickets[currentTicketIndex];
+        setTicket({
+          agencyName: currentTicket.agencyName || 'Agence inconnue',
+          logoUrl: currentTicket.logoUrl || 'https://via.placeholder.com/60',
+          departure: currentTicket.departure || '',
+          destination: currentTicket.destination || '',
+          departureTime: currentTicket.departureTime || '',
+          departureDate: currentTicket.departureDate || '',
+          seatType: currentTicket.seatType || '',
+          numberOfSeats: currentTicket.numberOfSeats || currentTicket.seats?.length || 0,
+          totalPrice: currentTicket.totalPrice || 0,
+          seats: currentTicket.seats || [],
+          fullName: currentTicket.fullName || '',
+          email: currentTicket.email || '',
+          phone: currentTicket.phone || '',
+          gender: currentTicket.gender || '',
+          reservationId: currentTicket.reservationId || '',
+          paymentMethod: currentTicket.paymentMethod || '',
+          confirmedAt: new Date(),
+          qrData: `TICKET-${currentTicket.reservationId}-${Date.now()}`,
+          ticketNumber: `TK${currentTicket.reservationId.slice(-6).toUpperCase()}`
+        });
+        setIsLoading(false);
+      } else if (ticketData) {
         const userData = user as UserData | null;
         setTicket({
           agencyName: ticketData.agencyName || 'Agence inconnue',
@@ -164,7 +208,7 @@ const TicketScreen = () => {
     };
 
     fetchTicketData();
-  }, [ticketData, reservationId, user]);
+  }, [tickets, currentTicketIndex, ticketData, reservationId, user]);
 
   // Formatage de la date
   const formatDate = (dateString: string): string => {
@@ -187,140 +231,76 @@ const TicketScreen = () => {
     return `${Number(numPrice).toLocaleString('fr-FR')} FCFA`;
   };
 
-  // Téléchargement du billet en PDF
-  const downloadTicketPDF = async () => {
-    try {
-      setIsDownloading(true);
-      
-      const viewShot = viewShotRef.current;
-      if (!viewShot) {
-        throw new Error('ViewShot reference is not available');
-      }
-
-      const uri = await captureRef(viewShot, {
-        format: 'jpg',
-        quality: 0.9,
-      });
-      
-      // Demander la permission pour Android
-      if (Platform.OS === 'android') {
+  const requestStoragePermission = async () => {
+    if (Platform.OS === 'android') {
+      try {
         const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+          {
+            title: "Permission de stockage",
+            message: "L'application a besoin d'accéder à votre stockage pour sauvegarder le ticket.",
+            buttonNeutral: "Demander plus tard",
+            buttonNegative: "Annuler",
+            buttonPositive: "OK"
+          }
         );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          Alert.alert('Permission refusée', 'Impossible de télécharger le billet sans permission');
-          return;
-        }
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (err) {
+        console.warn(err);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const saveTicketToGallery = async () => {
+    try {
+      const hasPermission = await requestStoragePermission();
+      if (!hasPermission) {
+        Alert.alert('Permission refusée', 'Impossible de sauvegarder le ticket sans permission de stockage.');
+        return;
       }
 
-      // Créer le nom du fichier
-      const fileName = `Ticket_${ticket.ticketNumber}_${Date.now()}.pdf`;
-      // S'assurer que le fichier va dans le dossier Téléchargements
-      const filePath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
+      if (viewShotRef.current) {
+        const uri = await viewShotRef.current.capture();
+        const timestamp = new Date().getTime();
+        const fileName = `ticket_${timestamp}.png`;
+        const filePath = `${RNFS.PicturesDirectoryPath}/${fileName}`;
 
-      // Créer le contenu HTML pour le PDF avec toutes les informations importantes
-      const htmlContent = `
-        <html>
-          <head>
-            <meta charset="utf-8">
-            <title>Billet de Voyage - ${ticket.ticketNumber}</title>
-            <style>
-              body { font-family: Arial, sans-serif; margin: 20px; }
-              .ticket { max-width: 600px; margin: 0 auto; border: 2px solid #1976D2; border-radius: 12px; overflow: hidden; }
-              .header { background: #1976D2; color: white; padding: 20px; text-align: center; }
-              .content { padding: 20px; }
-              .row { display: flex; justify-content: space-between; margin: 10px 0; }
-              .label { font-weight: bold; color: #666; }
-              .value { color: #333; }
-              .route { text-align: center; margin: 20px 0; font-size: 24px; color: #1976D2; }
-              .footer { background: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #666; }
-              .qr-section { text-align: center; margin: 20px 0; }
-              .price { font-size: 18px; font-weight: bold; color: #1976D2; text-align: right; }
-            </style>
-          </head>
-          <body>
-            <div class="ticket">
-              <div class="header">
-                <h1>${ticket.agencyName}</h1>
-                <p>Billet N° ${ticket.ticketNumber}</p>
-              </div>
-              
-              <div class="content">
-                <div class="route">
-                  ${ticket.departure} → ${ticket.destination}
-                </div>
-                <div class="row">
-                  <span class="label">Date de départ:</span>
-                  <span class="value">${formatDate(ticket.departureDate)}</span>
-                </div>
-                <div class="row">
-                  <span class="label">Heure de départ:</span>
-                  <span class="value">${ticket.departureTime}</span>
-                </div>
-                <div class="row">
-                  <span class="label">Type de place:</span>
-                  <span class="value">${ticket.seatType}</span>
-                </div>
-                <div class="row">
-                  <span class="label">Numéros de siège:</span>
-                  <span class="value">${ticket.seats.map(seat => seat.number).join(', ')}</span>
-                </div>
-                <div class="row">
-                  <span class="label">Nombre de places:</span>
-                  <span class="value">${ticket.numberOfSeats}</span>
-                </div>
-                <div class="row">
-                  <span class="label">Méthode de paiement:</span>
-                  <span class="value">${ticket.paymentMethod === 'OM' ? 'Orange Money' : ticket.paymentMethod === 'MoMo' ? 'Mobile Money' : ticket.paymentMethod}</span>
-                </div>
-                <hr style="margin: 20px 0; border: 1px dashed #ccc;">
-                <h3>Informations Passager</h3>
-                <div class="row">
-                  <span class="label">Nom complet:</span>
-                  <span class="value">${ticket.fullName}</span>
-                </div>
-                <div class="row">
-                  <span class="label">Email:</span>
-                  <span class="value">${ticket.email}</span>
-                </div>
-                <div class="row">
-                  <span class="label">Téléphone:</span>
-                  <span class="value">${ticket.phone}</span>
-                </div>
-                <div class="price">
-                  Prix total: ${formatPrice(ticket.totalPrice)}
-                </div>
-              </div>
-              <div class="footer">
-                <p>Ce billet est valide uniquement pour la date et l'heure indiquées.</p>
-                <p>Merci de voyager avec ${ticket.agencyName}!</p>
-              </div>
-            </div>
-          </body>
-        </html>
-      `;
-
-      // Convertir le HTML en PDF et sauvegarder
-      await RNFS.writeFile(filePath, htmlContent, 'utf8');
-      
-      // Partager le PDF
-      await Share.open({
-        url: `file://${filePath}`,
-        type: 'application/pdf',
-        title: 'Télécharger le billet',
-        message: `Billet n°${ticket.ticketNumber} - ${ticket.departure} → ${ticket.destination}`,
-      });
-
-      Alert.alert(
-        'Succès',
-        'Le billet a été téléchargé avec succès dans Téléchargements',
-        [{ text: 'OK' }]
-      );
+        await RNFS.copyFile(uri, filePath);
+        Alert.alert('Succès', 'Ticket sauvegardé dans la galerie');
+      }
     } catch (error) {
-      console.error('Erreur lors du téléchargement:', error);
-      Alert.alert('Erreur', 'Impossible de télécharger le billet');
-    } finally {
-      setIsDownloading(false);
+      console.error('Erreur lors de la sauvegarde:', error);
+      Alert.alert('Erreur', 'Impossible de sauvegarder le ticket');
+    }
+  };
+
+  const shareTicket = async () => {
+    try {
+      if (viewShotRef.current) {
+        const uri = await viewShotRef.current.capture();
+        await Share.open({
+          url: uri,
+          type: 'image/png',
+          title: 'Partager le ticket',
+        });
+      }
+    } catch (error) {
+      console.error('Erreur lors du partage:', error);
+      Alert.alert('Erreur', 'Impossible de partager le ticket');
+    }
+  };
+
+  const handleNextTicket = () => {
+    if (tickets && currentTicketIndex < tickets.length - 1) {
+      setCurrentTicketIndex(currentTicketIndex + 1);
+    }
+  };
+
+  const handlePreviousTicket = () => {
+    if (currentTicketIndex > 0) {
+      setCurrentTicketIndex(currentTicketIndex - 1);
     }
   };
 
@@ -337,16 +317,23 @@ const TicketScreen = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#1976D2" barStyle="light-content" />
       
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Icon name="arrow-back" size={24} color="white" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Billet de Voyage</Text>
-        <View style={styles.placeholder} />
-      </View>
+      <LinearGradient
+        colors={['#4169E1', '#5A7BF0']}
+        style={styles.headerGradient}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Icon name="arrow-back" size={24} color="#FFF" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>
+            Billet {tickets ? `${currentTicketIndex + 1}/${tickets.length}` : ''}
+          </Text>
+          <View style={styles.placeholder} />
+        </View>
+      </LinearGradient>
 
       <ScrollView style={styles.scrollView}>
         <ViewShot ref={viewShotRef} style={styles.ticketContainer}>
@@ -416,10 +403,36 @@ const TicketScreen = () => {
           </View>
         </ViewShot>
 
+        {tickets && tickets.length > 1 && (
+          <View style={styles.navigationButtons}>
+            <TouchableOpacity
+              style={[styles.navButton, currentTicketIndex === 0 && styles.disabledButton]}
+              onPress={handlePreviousTicket}
+              disabled={currentTicketIndex === 0}
+            >
+              <Icon name="chevron-back" size={24} color={currentTicketIndex === 0 ? '#ccc' : '#1976D2'} />
+              <Text style={[styles.navButtonText, currentTicketIndex === 0 && styles.disabledButtonText]}>
+                Précédent
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.navButton, currentTicketIndex === tickets.length - 1 && styles.disabledButton]}
+              onPress={handleNextTicket}
+              disabled={currentTicketIndex === tickets.length - 1}
+            >
+              <Text style={[styles.navButtonText, currentTicketIndex === tickets.length - 1 && styles.disabledButtonText]}>
+                Suivant
+              </Text>
+              <Icon name="chevron-forward" size={24} color={currentTicketIndex === tickets.length - 1 ? '#ccc' : '#1976D2'} />
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.actionButtons}>
           <TouchableOpacity
             style={[styles.actionButton, styles.downloadButton]}
-            onPress={downloadTicketPDF}
+            onPress={saveTicketToGallery}
             disabled={isDownloading}
           >
             {isDownloading ? (
@@ -427,9 +440,17 @@ const TicketScreen = () => {
             ) : (
               <>
                 <Icon name="download-outline" size={24} color="white" />
-                <Text style={styles.buttonText}>Télécharger le billet</Text>
+                <Text style={styles.buttonText}>Sauvegarder</Text>
               </>
             )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionButton, styles.shareButton]}
+            onPress={shareTicket}
+          >
+            <Icon name="share-social-outline" size={24} color="white" />
+            <Text style={styles.buttonText}>Partager</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -597,24 +618,32 @@ const styles = StyleSheet.create({
     color: '#1976D2',
   },
   actionButtons: {
-    padding: 15,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#F0F4FF',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    minWidth: 150,
     justifyContent: 'center',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
   },
   downloadButton: {
     backgroundColor: '#1976D2',
+  },
+  shareButton: {
+    backgroundColor: '#4169E1',
   },
   buttonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
-    marginLeft: 10,
+    marginLeft: 8,
   },
   loadingContainer: {
     flex: 1,
@@ -626,6 +655,44 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     color: '#666',
+  },
+  navigationButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+  },
+  navButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F4FF',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+  },
+  navButtonDisabled: {
+    backgroundColor: '#F5F5F5',
+  },
+  navButtonText: {
+    color: '#4169E1',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  navButtonTextDisabled: {
+    color: '#CCC',
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  disabledButtonText: {
+    color: '#ccc',
+  },
+  headerGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
 });
 

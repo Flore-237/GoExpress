@@ -24,6 +24,14 @@ import { ROUTES } from '../constants/routes';
 
 const { width } = Dimensions.get('window');
 
+interface PassengerInfo {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  gender: string;
+}
+
 const ReservationScreen = () => {
   const { user } = useAuth();
   const navigation = useNavigation();
@@ -35,15 +43,10 @@ const ReservationScreen = () => {
   const [paymentPhone, setPaymentPhone] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [currentPassengerIndex, setCurrentPassengerIndex] = useState(0);
 
-  // Passenger info state
-  const [passengerInfo, setPassengerInfo] = useState({
-    firstName: user?.firstName || '',
-    lastName: user?.lastName || '',
-    email: user?.email || '',
-    phone: user?.phone || '',
-    gender: 'Masculin'
-  });
+  // État pour les informations des passagers
+  const [passengersInfo, setPassengersInfo] = useState<PassengerInfo[]>([]);
 
   // Voyage info state with real-time updates
   const [voyageInfo, setVoyageInfo] = useState({
@@ -59,6 +62,33 @@ const ReservationScreen = () => {
     seats: [],
     reservationId: ''
   });
+
+  // Initialiser les informations des passagers
+  useEffect(() => {
+    if (voyageInfo.numberOfSeats > 0) {
+      const initialPassengers = Array(voyageInfo.numberOfSeats).fill(null).map((_, index) => {
+        if (index === 0) {
+          // Premier passager : informations de l'utilisateur connecté
+          return {
+            firstName: user?.firstName || '',
+            lastName: user?.lastName || '',
+            email: user?.email || '',
+            phone: user?.phone || '',
+            gender: 'Masculin'
+          };
+        }
+        // Autres passagers : champs vides
+        return {
+          firstName: '',
+          lastName: '',
+          email: '',
+          phone: '',
+          gender: 'Masculin'
+        };
+      });
+      setPassengersInfo(initialPassengers);
+    }
+  }, [voyageInfo.numberOfSeats, user]);
 
   // Fetch reservation data in real-time
   useEffect(() => {
@@ -108,15 +138,19 @@ const ReservationScreen = () => {
     return `${Number(numPrice).toLocaleString('fr-FR')} FCFA`;
   };
 
-  const handleEditPassengerInfo = () => {
+  const handleEditPassengerInfo = (index: number) => {
+    setCurrentPassengerIndex(index);
     setShowEditModal(true);
   };
 
-  const savePassengerInfo = () => {
+  const savePassengerInfo = (updatedInfo: PassengerInfo) => {
+    const newPassengersInfo = [...passengersInfo];
+    newPassengersInfo[currentPassengerIndex] = updatedInfo;
+    setPassengersInfo(newPassengersInfo);
     setShowEditModal(false);
   };
 
-  const handlePaymentMethodSelect = (method) => {
+  const handlePaymentMethodSelect = (method: string) => {
     setSelectedPaymentMethod(method);
     setPaymentPhone('');
   };
@@ -133,19 +167,16 @@ const ReservationScreen = () => {
 
   const getCurrentUserId = async () => {
     try {
-      // Essayer d'abord de récupérer depuis le contexte
       if (user?.uid || user?.id) {
         return user.uid || user.id;
       }
 
-      // Sinon essayer AsyncStorage
       const userData = await AsyncStorage.getItem('userData');
       if (userData) {
         const parsedData = JSON.parse(userData);
         return parsedData.uid || parsedData.id;
       }
 
-      // En dernier recours, utiliser l'email comme identifiant
       if (user?.email) {
         return user.email;
       }
@@ -157,21 +188,17 @@ const ReservationScreen = () => {
     }
   };
 
-  // Ajoutez cette fonction pour réinitialiser les champs
-  const resetFormFields = () => {
-    setSelectedPaymentMethod('');
-    setPaymentPhone('');
-    setPassengerInfo({
-      firstName: '',
-      lastName: '',
-      email: '',
-      phone: '',
-      gender: 'Masculin'
-    });
-  };
-
-  // Modifiez la fonction confirmReservation
   const confirmReservation = async () => {
+    // Vérifier que tous les passagers ont leurs informations remplies
+    const allPassengersFilled = passengersInfo.every(passenger => 
+      passenger.firstName && passenger.lastName && passenger.email && passenger.phone
+    );
+
+    if (!allPassengersFilled) {
+      Alert.alert('Erreur', 'Veuillez remplir les informations de tous les passagers');
+      return;
+    }
+
     if (!selectedPaymentMethod || !paymentPhone) {
       Alert.alert('Erreur', 'Veuillez sélectionner un mode de paiement et entrer votre numéro');
       return;
@@ -187,6 +214,7 @@ const ReservationScreen = () => {
         throw new Error('Utilisateur non identifié');
       }
 
+      // Mettre à jour la réservation avec les informations de tous les passagers
       await firestore().collection('reservations').doc(reservationId).update({
         userId: userId,
         userEmail: user?.email || '',
@@ -194,33 +222,27 @@ const ReservationScreen = () => {
         statutPaiement: 'confirmé',
         paymentMethod: selectedPaymentMethod,
         paymentPhone: paymentPhone,
-        passengerInfo: {
-          ...passengerInfo,
-          userId: userId,
-          email: user?.email || passengerInfo.email
-        },
+        passengersInfo: passengersInfo,
         confirmedAt: firestore.FieldValue.serverTimestamp(),
         createdAt: firestore.FieldValue.serverTimestamp(),
         updatedAt: firestore.FieldValue.serverTimestamp()
       });
 
-      const ticketData = {
+      // Générer un ticket pour chaque passager
+      const tickets = passengersInfo.map((passenger, index) => ({
         ...voyageInfo,
         userId: userId,
         userEmail: user?.email || '',
-        fullName: `${passengerInfo.firstName} ${passengerInfo.lastName}`,
-        email: passengerInfo.email,
-        phone: paymentPhone,
-        pieceIdentite: passengerInfo.pieceIdentite || 'Non spécifié',
+        fullName: `${passenger.firstName} ${passenger.lastName}`,
+        email: passenger.email,
+        phone: passenger.phone,
+        gender: passenger.gender,
         seatType: voyageInfo.seatType,
-        seats: voyageInfo.seats,
-        totalPrice: voyageInfo.totalPrice,
+        seats: [voyageInfo.seats[index]], // Un seul siège par ticket
+        totalPrice: voyageInfo.totalPrice / voyageInfo.numberOfSeats, // Prix divisé par le nombre de passagers
         paymentMethod: selectedPaymentMethod,
-        reservationId: reservationId
-      };
-
-      // Réinitialiser les champs après la réservation réussie
-      resetFormFields();
+        reservationId: `${reservationId}_${index + 1}` // ID unique pour chaque ticket
+      }));
 
       // Afficher la boîte de dialogue de succès
       Alert.alert(
@@ -228,12 +250,12 @@ const ReservationScreen = () => {
         'Votre réservation a été confirmée avec succès.',
         [
           {
-            text: 'Voir mon billet',
+            text: 'Voir mes billets',
             style: 'default',
             onPress: () => {
-              navigation.navigate('Ticket', {
-                ticketData: ticketData,
-                reservationId: reservationId
+              // Naviguer vers la page des tickets avec tous les tickets
+              navigation.navigate(ROUTES.TICKET, {
+                tickets: tickets
               });
             }
           }
@@ -254,102 +276,8 @@ const ReservationScreen = () => {
     }
   };
 
-  const renderEditModal = () => (
-    <Modal
-      visible={showEditModal}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={() => setShowEditModal(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Modifier les informations</Text>
-            <TouchableOpacity onPress={() => setShowEditModal(false)}>
-              <Icon name="close" size={24} color="#666" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.modalBody}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Prénom *</Text>
-              <TextInput
-                style={styles.textInput}
-                value={passengerInfo.firstName}
-                onChangeText={(text) => setPassengerInfo(prev => ({ ...prev, firstName: text }))}
-                placeholder="Votre prénom"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Nom *</Text>
-              <TextInput
-                style={styles.textInput}
-                value={passengerInfo.lastName}
-                onChangeText={(text) => setPassengerInfo(prev => ({ ...prev, lastName: text }))}
-                placeholder="Votre nom"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Email *</Text>
-              <TextInput
-                style={styles.textInput}
-                value={passengerInfo.email}
-                onChangeText={(text) => setPassengerInfo(prev => ({ ...prev, email: text }))}
-                placeholder="votre@email.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Téléphone *</Text>
-              <TextInput
-                style={styles.textInput}
-                value={passengerInfo.phone}
-                onChangeText={(text) => setPassengerInfo(prev => ({ ...prev, phone: text }))}
-                placeholder="655 78 38 79"
-                keyboardType="phone-pad"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Sexe *</Text>
-              <View style={styles.genderContainer}>
-                <TouchableOpacity
-                  style={[styles.genderOption, passengerInfo.gender === 'Masculin' && styles.selectedGender]}
-                  onPress={() => setPassengerInfo(prev => ({ ...prev, gender: 'Masculin' }))}
-                >
-                  <Text style={[styles.genderText, passengerInfo.gender === 'Masculin' && styles.selectedGenderText]}>
-                    Masculin
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.genderOption, passengerInfo.gender === 'Féminin' && styles.selectedGender]}
-                  onPress={() => setPassengerInfo(prev => ({ ...prev, gender: 'Féminin' }))}
-                >
-                  <Text style={[styles.genderText, passengerInfo.gender === 'Féminin' && styles.selectedGenderText]}>
-                    Féminin
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </ScrollView>
-
-          <View style={styles.modalFooter}>
-            <TouchableOpacity style={styles.saveButton} onPress={savePassengerInfo}>
-              <Text style={styles.saveButtonText}>Enregistrer</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Icon name="arrow-back" size={24} color="#1d1d1f" />
@@ -358,7 +286,6 @@ const ReservationScreen = () => {
         <View style={styles.placeholder} />
       </View>
 
-      {/* Processing Overlay */}
       {isProcessing && (
         <View style={styles.processingOverlay}>
           <View style={styles.processingContent}>
@@ -369,10 +296,8 @@ const ReservationScreen = () => {
         </View>
       )}
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Main Reservation Card */}
+      <ScrollView style={styles.content}>
         <Animatable.View animation="fadeInUp" duration={800} style={styles.mainCard}>
-          {/* Agency Header */}
           <View style={styles.agencyHeader}>
             <Image
               source={{ uri: voyageInfo.logoUrl }}
@@ -382,7 +307,6 @@ const ReservationScreen = () => {
             <Text style={styles.agencyName}>{voyageInfo.agencyName}</Text>
           </View>
 
-          {/* Voyage Details */}
           <View style={styles.routeContainer}>
             <View style={styles.routeInfo}>
               <Text style={styles.departureText}>{voyageInfo.departure}</Text>
@@ -406,7 +330,6 @@ const ReservationScreen = () => {
             </View>
           </View>
 
-          {/* Seats Info */}
           <View style={styles.seatsInfoContainer}>
             <View style={styles.seatTypeContainer}>
               <MaterialCommunityIcons name="seat" size={20} color="#666" />
@@ -422,49 +345,185 @@ const ReservationScreen = () => {
             </View>
           </View>
 
-          {/* Divider */}
           <View style={styles.divider} />
 
-          {/* Total Price */}
           <View style={styles.priceContainer}>
             <Text style={styles.totalText}>Total à payer</Text>
             <Text style={styles.priceText}>{formatPrice(voyageInfo.totalPrice)}</Text>
           </View>
         </Animatable.View>
 
-        {/* Passenger Info */}
-        <Animatable.View animation="fadeInUp" duration={800} delay={100} style={styles.passengerCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Informations passager</Text>
-            <TouchableOpacity onPress={handleEditPassengerInfo}>
-              <Text style={styles.editText}>Modifier</Text>
-            </TouchableOpacity>
-          </View>
+        {/* Liste des passagers */}
+        <Animatable.View animation="fadeInUp" duration={800} style={styles.passengerCard}>
+          <Text style={styles.sectionTitle}>Informations des passagers</Text>
+          
+          {passengersInfo.map((passenger, index) => (
+            <View key={index} style={styles.passengerSection}>
+              <View style={styles.passengerHeader}>
+                <Text style={styles.passengerTitle}>Passager {index + 1}</Text>
+                <TouchableOpacity onPress={() => handleEditPassengerInfo(index)}>
+                  <Text style={styles.editText}>Modifier</Text>
+                </TouchableOpacity>
+              </View>
 
-          <View style={styles.passengerInfoContainer}>
-            <View style={styles.passengerInfoRow}>
-              <Text style={styles.passengerInfoLabel}>Nom complet</Text>
-              <Text style={styles.passengerInfoValue}>
-                {passengerInfo.firstName} {passengerInfo.lastName}
-              </Text>
+              <View style={styles.passengerInfoContainer}>
+                <View style={styles.passengerInfoRow}>
+                  <Text style={styles.passengerInfoLabel}>Nom complet</Text>
+                  <Text style={styles.passengerInfoValue}>
+                    {passenger.firstName} {passenger.lastName}
+                  </Text>
+                </View>
+                <View style={styles.passengerInfoRow}>
+                  <Text style={styles.passengerInfoLabel}>Email</Text>
+                  <Text style={styles.passengerInfoValue}>{passenger.email}</Text>
+                </View>
+                <View style={styles.passengerInfoRow}>
+                  <Text style={styles.passengerInfoLabel}>Téléphone</Text>
+                  <Text style={styles.passengerInfoValue}>{passenger.phone}</Text>
+                </View>
+                <View style={styles.passengerInfoRow}>
+                  <Text style={styles.passengerInfoLabel}>Sexe</Text>
+                  <Text style={styles.passengerInfoValue}>{passenger.gender}</Text>
+                </View>
+              </View>
             </View>
-            <View style={styles.passengerInfoRow}>
-              <Text style={styles.passengerInfoLabel}>Email</Text>
-              <Text style={styles.passengerInfoValue}>{passengerInfo.email}</Text>
-            </View>
-            <View style={styles.passengerInfoRow}>
-              <Text style={styles.passengerInfoLabel}>Téléphone</Text>
-              <Text style={styles.passengerInfoValue}>{passengerInfo.phone}</Text>
-            </View>
-            <View style={styles.passengerInfoRow}>
-              <Text style={styles.passengerInfoLabel}>Sexe</Text>
-              <Text style={styles.passengerInfoValue}>{passengerInfo.gender}</Text>
-            </View>
-          </View>
+          ))}
         </Animatable.View>
 
-        {/* Payment Method */}
-        <Animatable.View animation="fadeInUp" duration={800} delay={200} style={styles.paymentCard}>
+        {/* Modal pour modifier les informations du passager */}
+        <Modal
+          visible={showEditModal}
+          animationType="slide"
+          transparent={true}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>
+                Modifier les informations du passager {currentPassengerIndex + 1}
+              </Text>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Prénom"
+                value={passengersInfo[currentPassengerIndex]?.firstName}
+                onChangeText={(text) => {
+                  const newPassengersInfo = [...passengersInfo];
+                  newPassengersInfo[currentPassengerIndex] = {
+                    ...newPassengersInfo[currentPassengerIndex],
+                    firstName: text
+                  };
+                  setPassengersInfo(newPassengersInfo);
+                }}
+              />
+
+              <TextInput
+                style={styles.input}
+                placeholder="Nom"
+                value={passengersInfo[currentPassengerIndex]?.lastName}
+                onChangeText={(text) => {
+                  const newPassengersInfo = [...passengersInfo];
+                  newPassengersInfo[currentPassengerIndex] = {
+                    ...newPassengersInfo[currentPassengerIndex],
+                    lastName: text
+                  };
+                  setPassengersInfo(newPassengersInfo);
+                }}
+              />
+
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                value={passengersInfo[currentPassengerIndex]?.email}
+                onChangeText={(text) => {
+                  const newPassengersInfo = [...passengersInfo];
+                  newPassengersInfo[currentPassengerIndex] = {
+                    ...newPassengersInfo[currentPassengerIndex],
+                    email: text
+                  };
+                  setPassengersInfo(newPassengersInfo);
+                }}
+              />
+
+              <TextInput
+                style={styles.input}
+                placeholder="Téléphone"
+                value={passengersInfo[currentPassengerIndex]?.phone}
+                onChangeText={(text) => {
+                  const newPassengersInfo = [...passengersInfo];
+                  newPassengersInfo[currentPassengerIndex] = {
+                    ...newPassengersInfo[currentPassengerIndex],
+                    phone: text
+                  };
+                  setPassengersInfo(newPassengersInfo);
+                }}
+              />
+
+              <View style={styles.genderContainer}>
+                <Text style={styles.genderLabel}>Sexe:</Text>
+                <View style={styles.genderButtons}>
+                  <TouchableOpacity
+                    style={[
+                      styles.genderButton,
+                      passengersInfo[currentPassengerIndex]?.gender === 'Masculin' && styles.selectedGender
+                    ]}
+                    onPress={() => {
+                      const newPassengersInfo = [...passengersInfo];
+                      newPassengersInfo[currentPassengerIndex] = {
+                        ...newPassengersInfo[currentPassengerIndex],
+                        gender: 'Masculin'
+                      };
+                      setPassengersInfo(newPassengersInfo);
+                    }}
+                  >
+                    <Text style={[
+                      styles.genderButtonText,
+                      passengersInfo[currentPassengerIndex]?.gender === 'Masculin' && styles.selectedGenderText
+                    ]}>Masculin</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.genderButton,
+                      passengersInfo[currentPassengerIndex]?.gender === 'Féminin' && styles.selectedGender
+                    ]}
+                    onPress={() => {
+                      const newPassengersInfo = [...passengersInfo];
+                      newPassengersInfo[currentPassengerIndex] = {
+                        ...newPassengersInfo[currentPassengerIndex],
+                        gender: 'Féminin'
+                      };
+                      setPassengersInfo(newPassengersInfo);
+                    }}
+                  >
+                    <Text style={[
+                      styles.genderButtonText,
+                      passengersInfo[currentPassengerIndex]?.gender === 'Féminin' && styles.selectedGenderText
+                    ]}>Féminin</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setShowEditModal(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Annuler</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.saveButton]}
+                  onPress={() => setShowEditModal(false)}
+                >
+                  <Text style={styles.saveButtonText}>Enregistrer</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Méthode de paiement */}
+        <Animatable.View animation="fadeInUp" duration={800} style={styles.paymentCard}>
           <Text style={styles.sectionTitle}>Méthode de paiement</Text>
           
           <View style={styles.paymentMethodsContainer}>
@@ -506,25 +565,21 @@ const ReservationScreen = () => {
             </View>
           )}
         </Animatable.View>
+
+        <View style={styles.confirmButtonContainer}>
+          <TouchableOpacity
+            style={[styles.confirmButton, isLoading && styles.disabledButton]}
+            onPress={confirmReservation}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.confirmButtonText}>Confirmer la réservation</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </ScrollView>
-
-      {/* Confirm Button */}
-      <Animatable.View animation="fadeInUp" duration={800} delay={300} style={styles.confirmButtonContainer}>
-        <TouchableOpacity 
-          style={styles.confirmButton}
-          onPress={confirmReservation}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="white" />
-          ) : (
-            <Text style={styles.confirmButtonText}>Confirmer et payer</Text>
-          )}
-        </TouchableOpacity>
-      </Animatable.View>
-
-      {/* Edit Modal */}
-      {renderEditModal()}
     </SafeAreaView>
   );
 };
@@ -697,12 +752,6 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -711,6 +760,23 @@ const styles = StyleSheet.create({
   editText: {
     color: '#007aff',
     fontSize: 14,
+  },
+  passengerSection: {
+    marginBottom: 20,
+    padding: 15,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+  },
+  passengerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  passengerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
   },
   passengerInfoContainer: {
     marginTop: 5,
@@ -822,85 +888,95 @@ const styles = StyleSheet.create({
     marginTop: 5,
     color: '#666',
   },
-  modalOverlay: {
+  modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalContent: {
     backgroundColor: 'white',
-    borderRadius: 10,
-    width: width * 0.9,
+    borderRadius: 12,
+    padding: 20,
+    width: '90%',
     maxHeight: '80%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
+    marginBottom: 20,
+    textAlign: 'center',
   },
-  modalBody: {
-    padding: 15,
-  },
-  inputGroup: {
-    marginBottom: 15,
-  },
-  inputLabel: {
-    marginBottom: 5,
-    color: '#666',
-  },
-  textInput: {
+  input: {
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
     padding: 12,
+    marginBottom: 15,
     backgroundColor: '#f9f9f9',
   },
   genderContainer: {
-    flexDirection: 'row',
-    marginTop: 5,
+    marginBottom: 20,
   },
-  genderOption: {
+  genderLabel: {
+    fontSize: 16,
+    marginBottom: 10,
+    color: '#333',
+  },
+  genderButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  genderButton: {
     flex: 1,
-    padding: 10,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#ddd',
-    borderRadius: 5,
-    marginRight: 10,
+    borderRadius: 8,
+    marginHorizontal: 5,
     alignItems: 'center',
   },
   selectedGender: {
-    borderColor: '#007aff',
     backgroundColor: '#4169E1',
+    borderColor: '#4169E1',
   },
-  genderText: {
-    color: '#666',
+  genderButtonText: {
+    color: '#333',
   },
   selectedGenderText: {
-    color: '#007aff',
-    fontWeight: '600',
+    color: 'white',
   },
-  modalFooter: {
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  modalButton: {
+    flex: 1,
     padding: 15,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderRadius: 8,
+    marginHorizontal: 5,
+  },
+  cancelButton: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#ddd',
   },
   saveButton: {
-    backgroundColor: '#007aff',
-    borderRadius: 8,
-    padding: 15,
-    alignItems: 'center',
+    backgroundColor: '#4169E1',
+  },
+  cancelButtonText: {
+    color: '#333',
+    textAlign: 'center',
+    fontWeight: '600',
   },
   saveButtonText: {
     color: 'white',
+    textAlign: 'center',
     fontWeight: '600',
+  },
+  disabledButton: {
+    opacity: 0.7,
   },
 });
 

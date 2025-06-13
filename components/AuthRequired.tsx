@@ -23,8 +23,7 @@ export const AuthRequired = ({ children }) => {
         routes: [{ name: 'Login' }],
       });
     }
-  };
-
+  };  
   if (isChecking) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>

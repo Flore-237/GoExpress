@@ -171,9 +171,6 @@ const HomeScreen = () => {
           <TouchableOpacity style={styles.notificationButton}>
             <Icon name="bell" size={24} color="#000" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.profileButton} onPress={navigateToProfile}>
-            <Icon name="user" size={24} color="#000" />
-          </TouchableOpacity>
         </View>
       </View> 
 
@@ -310,9 +307,6 @@ const styles = StyleSheet.create({
   notificationButton: {
     padding: 5,
     marginRight: 10,
-  },
-  profileButton: {
-    padding: 5,
   },
   scrollView: {
     flex: 1,
