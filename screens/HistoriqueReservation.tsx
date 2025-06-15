@@ -12,31 +12,26 @@ import {
   SafeAreaView,
   StatusBar,
   Share,
-  TextInput
+  TextInput,
+  Dimensions
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { format, parseISO, isAfter, isBefore, isToday, isThisWeek, isThisMonth } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { auth, db } from '../config/firebase';
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  doc, 
-  getDoc, 
-  updateDoc, 
-  onSnapshot,
-  orderBy 
-} from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Composant EmptyState
+const { width } = Dimensions.get('window');
+
+// Composant EmptyState amélioré
 const EmptyState = ({ icon, title, message, actionText, onActionPress }) => {
   return (
     <View style={emptyStateStyles.container}>
-      <Icon name={icon} size={60} color="#CCCCCC" />
+      <View style={emptyStateStyles.iconContainer}>
+        <Icon name={icon} size={80} color="#E3F2FD" />
+      </View>
       <Text style={emptyStateStyles.title}>{title}</Text>
       <Text style={emptyStateStyles.message}>{message}</Text>
       <TouchableOpacity 
@@ -44,6 +39,7 @@ const EmptyState = ({ icon, title, message, actionText, onActionPress }) => {
         onPress={onActionPress}
       >
         <Text style={emptyStateStyles.actionText}>{actionText}</Text>
+        <Icon name="arrow-right" size={16} color="#FFFFFF" style={{ marginLeft: 8 }} />
       </TouchableOpacity>
     </View>
   );
@@ -55,31 +51,54 @@ const emptyStateStyles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
-    marginTop: 60,
+    padding: 32,
+    backgroundColor: '#FAFBFF',
+  },
+  iconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#F3F7FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+    shadowColor: '#4169E1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 8,
   },
   title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#263238',
-    marginTop: 16,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 8,
+    textAlign: 'center',
   },
   message: {
-    fontSize: 14,
-    color: '#757575',
+    fontSize: 16,
+    color: '#64748B',
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 20,
+    lineHeight: 24,
+    marginBottom: 32,
+    paddingHorizontal: 16,
   },
   actionButton: {
-    backgroundColor: '#5e17eb',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4169E1',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 16,
+    shadowColor: '#4169E1',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   actionText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
   },
 });
@@ -93,7 +112,7 @@ interface Reservation {
   ticketId: string;
   typePlace: 'VIP' | 'Classique';
   prixTotal: number;
-  statut: 'confirmé' | 'en attente' | 'annulé';
+  statut: 'confirmé' | 'en_attente' | 'annulé';
   dateReservation: string;
   heureReservation: string;
   createdAt: any;
@@ -104,9 +123,20 @@ interface Reservation {
   heureDepart?: string;
   villeDepart?: string;
   villeArrivee?: string;
-  statutPaiement?: 'complété' | 'en attente';
+  statutPaiement?: 'complété' | 'en_attente';
   nomAgence?: string;
   logoAgence?: string;
+  // Champs supplémentaires basés sur vos données
+  departure?: string;
+  destination?: string;
+  departureDate?: string;
+  departureTime?: string;
+  seatType?: string;
+  paymentStatus?: string;
+  numberOfSeats?: number;
+  pricePerSeat?: number;
+  totalPrice?: number;
+  seats?: Array<any>;
 }
 
 const HistoriqueReservation: React.FC = () => {
@@ -145,12 +175,38 @@ const HistoriqueReservation: React.FC = () => {
 
   const getCurrentUserId = async () => {
     try {
-      const userId = await AsyncStorage.getItem('userId');
-      if (userId) return userId;
+      // Essayer d'abord AsyncStorage
+      const storedUserId = await AsyncStorage.getItem('userId');
+      if (storedUserId) {
+        console.log('User ID trouvé dans AsyncStorage:', storedUserId);
+        return storedUserId;
+      }
+
+      // Ensuite essayer authToken
+      const authToken = await AsyncStorage.getItem('authToken');
+      if (authToken) {
+        console.log('Auth token trouvé:', authToken);
+        return authToken;
+      }
       
+      // Enfin essayer Firebase auth
       const currentUser = auth.currentUser;
-      if (currentUser) return currentUser.uid;
+      if (currentUser) {
+        console.log('User ID trouvé dans Firebase auth:', currentUser.uid);
+        return currentUser.uid;
+      }
+
+      // Essayer de récupérer les données utilisateur stockées
+      const userData = await AsyncStorage.getItem('userData');
+      if (userData) {
+        const parsedUserData = JSON.parse(userData);
+        if (parsedUserData.id || parsedUserData.uid) {
+          console.log('User ID trouvé dans userData:', parsedUserData.id || parsedUserData.uid);
+          return parsedUserData.id || parsedUserData.uid;
+        }
+      }
       
+      console.log('Aucun utilisateur connecté trouvé');
       return null;
     } catch (error) {
       console.error('Erreur lors de la récupération de l\'ID utilisateur:', error);
@@ -163,6 +219,8 @@ const HistoriqueReservation: React.FC = () => {
       setLoading(true);
       
       const userId = await getCurrentUserId();
+      console.log('User ID récupéré:', userId);
+      
       if (!userId) {
         console.log('Aucun utilisateur connecté');
         setReservations([]);
@@ -170,80 +228,72 @@ const HistoriqueReservation: React.FC = () => {
         return;
       }
 
-      const reservationsRef = collection(db, 'reservations');
-      const q = query(
-        reservationsRef, 
-        where('userId', '==', userId),
-        orderBy('createdAt', 'desc')
+      // Essayer d'abord avec userId
+      let reservationsRef = firestore()
+        .collection('reservations')
+        .where('userId', '==', userId);
+
+      const unsubscribeListener = reservationsRef.onSnapshot(
+        (snapshot) => {
+          console.log('Nombre de documents trouvés avec userId:', snapshot.docs.length);
+          
+          if (snapshot.docs.length === 0) {
+            // Si aucun résultat avec userId, essayer avec d'autres champs possibles
+            console.log('Aucune réservation trouvée avec userId, essai avec d\'autres champs...');
+            
+            // Vous pouvez ici essayer d'autres requêtes si nécessaire
+            // Par exemple si vous stockez l'ID utilisateur dans un autre champ
+          }
+
+          const reservationsData = snapshot.docs.map(doc => {
+            const data = doc.data();
+            console.log('Données de réservation trouvées:', data);
+            
+            return {
+              id: doc.id,
+              ...data,
+              // Normaliser les données pour assurer la compatibilité
+              villeDepart: data.villeDepart || data.departure,
+              villeArrivee: data.villeArrivee || data.destination,
+              dateVoyage: data.dateVoyage || data.departureDate,
+              heureDepart: data.heureDepart || data.departureTime,
+              typePlace: data.typePlace || data.seatType,
+              statut: data.statut || (data.paymentStatus === 'en_attente' ? 'en_attente' : 'confirmé'),
+              statutPaiement: data.statutPaiement || data.paymentStatus,
+              prixTotal: data.prixTotal || data.totalPrice || data.pricePerSeat,
+              dateReservation: data.dateReservation || data.createdAt?.toDate?.() || data.reservationDate?.toDate?.(),
+            };
+          });
+          
+          console.log('Réservations finales:', reservationsData);
+          setReservations(reservationsData);
+          setLoading(false);
+        },
+        (error) => {
+          console.error('Erreur lors de la récupération des réservations:', error);
+          
+          // En cas d'erreur, essayer une requête alternative
+          console.log('Tentative de récupération de toutes les réservations pour debug...');
+          
+          firestore()
+            .collection('reservations')
+            .limit(10)
+            .get()
+            .then((snapshot) => {
+              console.log('Toutes les réservations (debug):', snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+              })));
+            })
+            .catch((debugError) => {
+              console.error('Erreur debug:', debugError);
+            });
+          
+          setLoading(false);
+        }
       );
 
-      const unsubscribeSnapshot = onSnapshot(q, async (snapshot) => {
-        console.log('Mise à jour en temps réel des réservations');
-        
-        if (snapshot.empty) {
-          console.log('Aucune réservation trouvée');
-          setReservations([]);
-          setLoading(false);
-          return;
-        }
-        
-        const reservationsData: Reservation[] = [];
-        
-        for (const docSnap of snapshot.docs) {
-          const reservationData = docSnap.data() as Reservation;
-          
-          try {
-            const voyageDocRef = doc(db, 'voyages', reservationData.voyageId);
-            const voyageDoc = await getDoc(voyageDocRef);
-            
-            const agencyDocRef = doc(db, 'agencies', reservationData.agencyId);
-            const agencyDoc = await getDoc(agencyDocRef);
-            
-            let ticketData = null;
-            if (reservationData.ticketId) {
-              const ticketDocRef = doc(db, 'tickets', reservationData.ticketId);
-              const ticketDoc = await getDoc(ticketDocRef);
-              ticketData = ticketDoc.exists() ? ticketDoc.data() : null;
-            }
-            
-            let paiementData = null;
-            if (reservationData.paiementId) {
-              const paiementDocRef = doc(db, 'paiements', reservationData.paiementId);
-              const paiementDoc = await getDoc(paiementDocRef);
-              paiementData = paiementDoc.exists() ? paiementDoc.data() : null;
-            }
-            
-            if (voyageDoc.exists() && agencyDoc.exists()) {
-              const voyageData = voyageDoc.data();
-              const agencyData = agencyDoc.data();
-              
-              reservationsData.push({
-                ...reservationData,
-                id: docSnap.id,
-                dateVoyage: voyageData?.dateDepart,
-                heureDepart: voyageData?.heureDepart,
-                villeDepart: voyageData?.departure || voyageData?.villeDepart,
-                villeArrivee: voyageData?.destination || voyageData?.villeArrivee,
-                nomAgence: agencyData?.name || agencyData?.nom,
-                logoAgence: agencyData?.logoUrl || agencyData?.logo,
-                numeroBillet: ticketData?.barcode || ticketData?.numero,
-                statutPaiement: paiementData?.status || paiementData?.statut
-              });
-            }
-          } catch (error) {
-            console.error('Erreur lors de la récupération des données associées:', error);
-          }
-        }
-        
-        setReservations(reservationsData);
-        setLoading(false);
-      }, (error) => {
-        console.error('Erreur lors de l\'écoute en temps réel:', error);
-        Alert.alert('Erreur', 'Impossible de synchroniser vos réservations.');
-        setLoading(false);
-      });
-
-      setUnsubscribe(() => unsubscribeSnapshot);
+      setUnsubscribe(() => unsubscribeListener);
     } catch (error) {
       console.error('Erreur lors de la configuration de l\'écoute:', error);
       setLoading(false);
@@ -299,6 +349,12 @@ const HistoriqueReservation: React.FC = () => {
 
   const onRefresh = async () => {
     setRefreshing(true);
+    // Relancer la configuration du listener pour rafraîchir les données
+    if (unsubscribe) {
+      unsubscribe();
+      setUnsubscribe(null);
+    }
+    await setupRealtimeListener();
     setTimeout(() => setRefreshing(false), 1000);
   };
 
@@ -333,10 +389,13 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
           style: 'destructive',
           onPress: async () => {
             try {
-              const reservationRef = doc(db, 'reservations', reservationId);
-              await updateDoc(reservationRef, {
-                statut: 'annulé',
-              });
+              await firestore()
+                .collection('reservations')
+                .doc(reservationId)
+                .update({
+                  statut: 'annulé',
+                  updatedAt: firestore.FieldValue.serverTimestamp()
+                });
               
               Alert.alert('Succès', 'Votre réservation a été annulée');
             } catch (error) {
@@ -351,10 +410,19 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
 
   const getStatusColor = (statut: string) => {
     switch (statut) {
-      case 'confirmé': return '#4CAF50';
-      case 'annulé': return '#F44336';
-      case 'en attente': return '#FF9800';
-      default: return '#757575';
+      case 'confirmé': return '#10B981';
+      case 'annulé': return '#EF4444';
+      case 'en_attente': return '#F59E0B';
+      default: return '#6B7280';
+    }
+  };
+
+  const getStatusBgColor = (statut: string) => {
+    switch (statut) {
+      case 'confirmé': return '#ECFDF5';
+      case 'annulé': return '#FEF2F2';
+      case 'en_attente': return '#FFFBEB';
+      default: return '#F9FAFB';
     }
   };
 
@@ -380,13 +448,20 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
         onPress={() => setActiveFilter(filter as any)}
       >
         <Text style={[styles.filterText, isActive && styles.activeFilterText]}>
-          {label} {count !== undefined && `(${count})`}
+          {label}
         </Text>
+        {count !== undefined && (
+          <View style={[styles.countBadge, isActive && styles.activeCountBadge]}>
+            <Text style={[styles.countText, isActive && styles.activeCountText]}>
+              {count}
+            </Text>
+          </View>
+        )}
       </TouchableOpacity>
     );
   };
 
-  const renderReservationItem = ({ item }: { item: Reservation }) => {
+  const renderReservationItem = ({ item, index }: { item: Reservation, index: number }) => {
     const canCancel = item.statut !== 'annulé' && 
                       item.dateVoyage && 
                       isAfter(parseISO(item.dateVoyage), new Date());
@@ -399,103 +474,132 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
     
     return (
       <TouchableOpacity
-        style={styles.reservationCard}
+        style={[styles.reservationCard, { marginBottom: index === filteredReservations.length - 1 ? 100 : 16 }]}
         onPress={() => navigateToReservationDetails(item.id)}
-        activeOpacity={0.7}
+        activeOpacity={0.8}
       >
-        {dateLabel && (
-          <View style={styles.dateLabelContainer}>
-            <Text style={styles.dateLabelText}>{dateLabel}</Text>
+        <View style={styles.cardGradient}>
+          <View style={styles.cardHeader}>
+            <View style={styles.agencyContainer}>
+              <View style={styles.logoContainer}>
+                {item.logoAgence && !item.logoAgence.startsWith('assets/') ? (
+                  <Image
+                    source={{ uri: item.logoAgence }}
+                    style={styles.agencyLogo}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.agencyLogoPlaceholder}>
+                    <Text style={styles.agencyLogoInitial}>
+                      {item.nomAgence?.charAt(0) || 'A'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.agencyInfo}>
+                <Text style={styles.agencyName} numberOfLines={1}>
+                  {item.nomAgence || 'Agence inconnue'}
+                </Text>
+                <View style={styles.refContainer}>
+                  <Icon name="bookmark-outline" size={12} color="#64748B" />
+                  <Text style={styles.reservationId}>
+                    {item.numeroBillet || item.id.slice(-8)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+            <View style={[
+              styles.statusBadge,
+              { backgroundColor: getStatusBgColor(item.statut) }
+            ]}>
+              <View style={[styles.statusDot, { backgroundColor: getStatusColor(item.statut) }]} />
+              <Text style={[styles.statusText, { color: getStatusColor(item.statut) }]}>
+                {item.statut}
+              </Text>
+            </View>
           </View>
-        )}
-        
-        <View style={styles.cardHeader}>
-          <View style={styles.agencyContainer}>
-            {item.logoAgence ? (
-              <Image
-                source={{ uri: item.logoAgence }}
-                style={styles.agencyLogo}
-                resizeMode="contain"
-              />
-            ) : (
-              <View style={styles.agencyLogoPlaceholder}>
-                <Text style={styles.agencyLogoInitial}>
-                  {item.nomAgence?.charAt(0) || 'A'}
+          
+          <View style={styles.routeSection}>
+            <View style={styles.routeContainer}>
+              <View style={styles.cityContainer}>
+                <Text style={styles.cityCode}>
+                  {(item.villeDepart || 'DEP').substring(0, 3).toUpperCase()}
+                </Text>
+                <Text style={styles.cityName} numberOfLines={1}>
+                  {item.villeDepart || 'Départ'}
                 </Text>
               </View>
-            )}
-            <View style={styles.agencyInfo}>
-              <Text style={styles.agencyName}>{item.nomAgence || 'Agence inconnue'}</Text>
-              <Text style={styles.reservationId}>Réf: {item.numeroBillet || item.id.slice(-8)}</Text>
+              
+              <View style={styles.routeMiddle}>
+                <View style={styles.routeLine} />
+                <View style={styles.arrowContainer}>
+                  <Icon name="arrow-right" size={20} color="#4169E1" />
+                </View>
+                <View style={styles.routeLine} />
+              </View>
+              
+              <View style={styles.cityContainer}>
+                <Text style={styles.cityCode}>
+                  {(item.villeArrivee || 'ARR').substring(0, 3).toUpperCase()}
+                </Text>
+                <Text style={styles.cityName} numberOfLines={1}>
+                  {item.villeArrivee || 'Arrivée'}
+                </Text>
+              </View>
             </View>
           </View>
-          <View style={[
-            styles.statusBadge,
-            { backgroundColor: getStatusColor(item.statut) + '20' }
-          ]}>
-            <Text style={[styles.statusText, { color: getStatusColor(item.statut) }]}>
-              {item.statut}
-            </Text>
-          </View>
-        </View>
-        
-        <View style={styles.cardBody}>
-          <View style={styles.journeyInfo}>
-            <View style={styles.routeContainer}>
-              <Text style={styles.cityText}>{item.villeDepart || 'Départ'}</Text>
-              <View style={styles.arrowContainer}>
-                <View style={styles.arrowLine} />
-                <Icon name="arrow-right" size={20} color="#5e17eb" />
+          
+          <View style={styles.detailsSection}>
+            <View style={styles.detailRow}>
+              <View style={styles.detailItem}>
+                <Icon name="calendar-outline" size={16} color="#64748B" />
+                <Text style={styles.detailText}>{formattedDate}</Text>
               </View>
-              <Text style={styles.cityText}>{item.villeArrivee || 'Arrivée'}</Text>
+              <View style={styles.detailItem}>
+                <Icon name="clock-outline" size={16} color="#64748B" />
+                <Text style={styles.detailText}>{item.heureDepart || 'Non définie'}</Text>
+              </View>
             </View>
             
-            <View style={styles.dateTimeContainer}>
-              <Icon name="calendar" size={16} color="#666" />
-              <Text style={styles.dateTimeText}>{formattedDate}</Text>
-              <Icon name="clock-outline" size={16} color="#666" style={{ marginLeft: 8 }} />
-              <Text style={styles.dateTimeText}>{item.heureDepart || 'Heure non définie'}</Text>
+            <View style={styles.detailRow}>
+              <View style={styles.detailItem}>
+                <Icon name="seat-passenger" size={16} color="#64748B" />
+                <Text style={styles.detailText}>{item.typePlace}</Text>
+              </View>
+              <View style={styles.priceContainer}>
+                <Text style={styles.priceValue}>{item.prixTotal?.toLocaleString() || '0'}</Text>
+                <Text style={styles.priceUnit}>FCFA</Text>
+              </View>
             </View>
           </View>
           
-          <View style={styles.ticketInfo}>
-            <View style={styles.ticketTypeContainer}>
-              <Text style={styles.ticketTypeLabel}>Type:</Text>
-              <Text style={styles.ticketTypeValue}>{item.typePlace}</Text>
-            </View>
-            <View style={styles.priceContainer}>
-              <Text style={styles.priceLabel}>Prix:</Text>
-              <Text style={styles.priceValue}>{item.prixTotal?.toLocaleString() || '0'} FCFA</Text>
-            </View>
-          </View>
-        </View>
-        
-        <View style={styles.cardFooter}>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => shareTicket(item)}
-          >
-            <Icon name="share-variant" size={18} color="#5e17eb" />
-            <Text style={styles.actionButtonText}>Partager</Text>
-          </TouchableOpacity>
-          
-          {canCancel && (
+          <View style={styles.actionsSection}>
+            {canCancel && (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.cancelButton]}
+                onPress={() => cancelReservation(item.id)}
+              >
+                <Icon name="close-circle-outline" size={18} color="#EF4444" />
+                <Text style={styles.cancelButtonText}>Annuler</Text>
+              </TouchableOpacity>
+            )}
+            
             <TouchableOpacity
-              style={[styles.actionButton, styles.cancelButton]}
-              onPress={() => cancelReservation(item.id)}
+              style={styles.actionButton}
+              onPress={() => shareTicket(item)}
             >
-              <Icon name="cancel" size={18} color="#F44336" />
-              <Text style={[styles.actionButtonText, styles.cancelButtonText]}>Annuler</Text>
+              <Icon name="share-variant-outline" size={18} color="#4169E1" />
+              <Text style={styles.actionButtonText}>Partager</Text>
             </TouchableOpacity>
-          )}
-          
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => navigateToReservationDetails(item.id)}
-          >
-            <Icon name="eye" size={18} color="#5e17eb" />
-            <Text style={styles.actionButtonText}>Détails</Text>
-          </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.actionButton, styles.primaryButton]}
+              onPress={() => navigateToReservationDetails(item.id)}
+            >
+              <Icon name="eye-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.primaryButtonText}>Détails</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -524,13 +628,21 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
   const confirmedCount = reservations.filter(r => r.statut === 'confirmé').length;
   const cancelledCount = reservations.filter(r => r.statut === 'annulé').length;
 
+  // Fonction pour rediriger vers la homepage
+  const goToHome = () => {
+    navigation.navigate('Home');
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#5e17eb" />
-          <Text style={styles.loadingText}>Chargement de vos réservations...</Text>
+          <View style={styles.loadingSpinner}>
+            <ActivityIndicator size="large" color="#4169E1" />
+          </View>
+          <Text style={styles.loadingTitle}>Chargement</Text>
+          <Text style={styles.loadingText}>Récupération de vos réservations...</Text>
         </View>
       </SafeAreaView>
     );
@@ -545,29 +657,34 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Icon name="arrow-left" size={24} color="#263238" />
+          <Icon name="arrow-left" size={24} color="#1A1A1A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Mes Réservations</Text>
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>Mes Réservations</Text>
+          <Text style={styles.headerSubtitle}>{reservations.length} voyage(s)</Text>
+        </View>
         <View style={styles.headerRight} />
       </View>
 
-      <View style={styles.searchContainer}>
-        <Icon name="magnify" size={20} color="#666" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Rechercher par agence, ville, référence..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholderTextColor="#999"
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Icon name="close-circle" size={20} color="#666" />
-          </TouchableOpacity>
-        )}
+      <View style={styles.searchSection}>
+        <View style={styles.searchContainer}>
+          <Icon name="magnify" size={20} color="#64748B" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Rechercher par agence, ville..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor="#94A3B8"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Icon name="close-circle" size={20} color="#64748B" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      <View style={styles.filtersContainer}>
+      <View style={styles.filtersSection}>
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -590,7 +707,7 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
           title={searchQuery.trim() ? "Aucun résultat" : activeFilter === 'upcoming' ? "Aucun voyage à venir" : activeFilter === 'past' ? "Aucun voyage passé" : activeFilter === 'cancelled' ? "Aucune réservation annulée" : "Aucune réservation"}
           message={searchQuery.trim() ? "Aucune réservation ne correspond à votre recherche" : activeFilter === 'upcoming' ? "Vous n'avez aucun voyage prévu pour le moment" : activeFilter === 'past' ? "Vous n'avez aucun voyage terminé" : activeFilter === 'cancelled' ? "Vous n'avez aucune réservation annulée" : "Vous n'avez pas encore effectué de réservation"}
           actionText={searchQuery.trim() ? "Effacer la recherche" : "Réserver un voyage"}
-          onActionPress={searchQuery.trim() ? () => setSearchQuery('') : () => navigation.navigate('Search')}
+          onActionPress={searchQuery.trim() ? () => setSearchQuery('') : goToHome}
         />
       ) : (
         <FlatList
@@ -603,11 +720,10 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              colors={['#5e17eb']}
-              tintColor="#5e17eb"
+              colors={['#4169E1']}
+              tintColor="#4169E1"
             />
           }
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
         />
       )}
     </SafeAreaView>
@@ -617,275 +733,352 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#FAFBFF',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAFBFF',
+  },
+  loadingSpinner: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#F3F7FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  loadingTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 8,
   },
   loadingText: {
-    marginTop: 12,
     fontSize: 16,
-    color: '#666',
+    color: '#64748B',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: '#E2E8F0',
   },
   backButton: {
-    padding: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerContent: {
+    flex: 1,
+    alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#263238',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1A1A1A',
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    marginTop: 2,
   },
   headerRight: {
     width: 40,
   },
+  searchSection: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#FFFFFF',
+  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginVertical: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: '#E2E8F0',
   },
   searchInput: {
     flex: 1,
-    marginLeft: 8,
+    marginLeft: 12,
     fontSize: 16,
-    color: '#263238',
+    color: '#1A1A1A',
   },
-  filtersContainer: {
+filtersSection: {
     backgroundColor: '#FFFFFF',
-    paddingVertical: 12,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: '#E2E8F0',
   },
   filtersContentContainer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
   filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
+    marginRight: 12,
     borderRadius: 20,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: '#E2E8F0',
   },
   activeFilterButton: {
-    backgroundColor: '#5e17eb',
-    borderColor: '#5e17eb',
+    backgroundColor: '#4169E1',
+    borderColor: '#4169E1',
   },
   filterText: {
     fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#64748B',
   },
   activeFilterText: {
     color: '#FFFFFF',
   },
-  listContainer: {
-    padding: 16,
+  countBadge: {
+    marginLeft: 8,
+    backgroundColor: '#E2E8F0',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    minWidth: 24,
+    alignItems: 'center',
   },
-  separator: {
-    height: 12,
+  activeCountBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  countText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  activeCountText: {
+    color: '#FFFFFF',
+  },
+  listContainer: {
+    padding: 20,
   },
   reservationCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    borderRadius: 20,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 8,
+    overflow: 'hidden',
   },
-  dateLabelContainer: {
-    position: 'absolute',
-    top: -6,
-    left: 16,
-    backgroundColor: '#5e17eb',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    zIndex: 1,
-  },
-  dateLabelText: {
-    fontSize: 10,
-    color: '#FFFFFF',
-    fontWeight: '600',
+  cardGradient: {
+    padding: 20,
   },
   cardHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
-    marginTop: 4,
+    justifyContent: 'space-between',
+    marginBottom: 20,
   },
   agencyContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-  agencyLogo: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  logoContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  agencyLogo: {
+    width: '100%',
+    height: '100%',
   },
   agencyLogoPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#5e17eb',
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#4169E1',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
   },
   agencyLogoInitial: {
-    color: '#FFFFFF',
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   agencyInfo: {
     flex: 1,
   },
   agencyName: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#263238',
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 4,
+  },
+  refContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   reservationId: {
     fontSize: 12,
-    color: '#666',
-    marginTop: 2,
+    color: '#64748B',
+    marginLeft: 4,
+    fontFamily: 'monospace',
   },
   statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
   },
   statusText: {
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'capitalize',
   },
-  cardBody: {
-    marginBottom: 12,
-  },
-  journeyInfo: {
-    marginBottom: 12,
+  routeSection: {
+    marginBottom: 20,
   },
   routeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    justifyContent: 'space-between',
   },
-  cityText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#263238',
+  cityContainer: {
     flex: 1,
+    alignItems: 'center',
+  },
+  cityCode: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1A1A1A',
+    marginBottom: 4,
+  },
+  cityName: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+  },
+  routeMiddle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginHorizontal: 16,
+  },
+  routeLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: '#E2E8F0',
   },
   arrowContainer: {
-    flexDirection: 'row',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
     alignItems: 'center',
     marginHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  arrowLine: {
-    height: 1,
-    width: 20,
-    backgroundColor: '#5e17eb',
-    marginRight: 4,
+
+  detailsSection: {
+    marginBottom: 20,
   },
-  dateTimeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  dateTimeText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 4,
-  },
-  ticketInfo: {
+  detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    alignItems: 'center',
+    marginBottom: 12,
   },
-  ticketTypeContainer: {
+  detailItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
-  ticketTypeLabel: {
+  detailText: {
     fontSize: 14,
-    color: '#666',
-    marginRight: 4,
-  },
-  ticketTypeValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#263238',
+    color: '#64748B',
+    marginLeft: 8,
   },
   priceContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-  },
-  priceLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginRight: 4,
+    alignItems: 'baseline',
+    justifyContent: 'flex-end',
+    flex: 1,
   },
   priceValue: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#5e17eb',
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1A1A1A',
   },
-  cardFooter: {
+  priceUnit: {
+    fontSize: 12,
+    color: '#64748B',
+    marginLeft: 4,
+  },
+  actionsSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: 12,
+    alignItems: 'center',
+    paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    borderTopColor: '#F1F5F9',
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: '#F5F5F5',
-  },
-  actionButtonText: {
-    fontSize: 12,
-    color: '#5e17eb',
-    marginLeft: 4,
-    fontWeight: '500',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   cancelButton: {
-    backgroundColor: '#FFEBEE',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  primaryButton: {
+    backgroundColor: '#4169E1',
+    borderColor: '#4169E1',
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4169E1',
+    marginLeft: 6,
   },
   cancelButtonText: {
-    color: '#F44336',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#EF4444',
+    marginLeft: 6,
+  },
+  primaryButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginLeft: 6,
   },
 });
 

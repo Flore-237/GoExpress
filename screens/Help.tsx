@@ -18,6 +18,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import FontAwesome from 'react-native-vector-icons/FontAwesome';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
+import { COLORS } from '../constants/colors';
 
 const Help = ({ navigation }) => {
   const [activeTab, setActiveTab] = useState('faq'); 
@@ -205,7 +206,7 @@ const Help = ({ navigation }) => {
             <Icon 
               name={expandedFaq === faq.id ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} 
               size={24} 
-              color="#0056b3" 
+              color="#4169E1" 
             />
           </View>
           
@@ -440,7 +441,7 @@ const Help = ({ navigation }) => {
           style={[styles.tab, activeTab === 'faq' && styles.activeTab]}
           onPress={() => setActiveTab('faq')}
         >
-          <Icon name="question-answer" size={20} color={activeTab === 'faq' ? '#0056b3' : '#555'} />
+          <Icon name="question-answer" size={20} color={activeTab === 'faq' ? '#4169E1' : '#555'} />
           <Text style={[styles.tabText, activeTab === 'faq' && styles.activeTabText]}>FAQ</Text>
         </TouchableOpacity>
         
@@ -448,7 +449,7 @@ const Help = ({ navigation }) => {
           style={[styles.tab, activeTab === 'contact' && styles.activeTab]}
           onPress={() => setActiveTab('contact')}
         >
-          <Icon name="email" size={20} color={activeTab === 'contact' ? '#0056b3' : '#555'} />
+          <Icon name="email" size={20} color={activeTab === 'contact' ? '#4169E1' : '#555'} />
           <Text style={[styles.tabText, activeTab === 'contact' && styles.activeTabText]}>Contact</Text>
         </TouchableOpacity>
         
@@ -456,7 +457,7 @@ const Help = ({ navigation }) => {
           style={[styles.tab, activeTab === 'status' && styles.activeTab]}
           onPress={() => setActiveTab('status')}
         >
-          <Icon name="search" size={20} color={activeTab === 'status' ? '#0056b3' : '#555'} />
+          <Icon name="search" size={20} color={activeTab === 'status' ? '#4169E1' : '#555'} />
           <Text style={[styles.tabText, activeTab === 'status' && styles.activeTabText]}>Statut</Text>
         </TouchableOpacity>
       </View>
@@ -478,6 +479,7 @@ const styles = StyleSheet.create({
   header: {
     height: 150,
     position: 'relative',
+    backgroundColor: COLORS.primary,
   },
   headerImage: {
     width: '100%',
@@ -496,7 +498,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#ffffff',
+    color: '#fff',
     marginBottom: 8,
   },
   headerSubtitle: {
@@ -522,7 +524,7 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     borderBottomWidth: 3,
-    borderBottomColor: '#0056b3',
+    borderBottomColor: '#4169E1',
   },
   tabText: {
     fontSize: 14,
@@ -530,7 +532,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   activeTabText: {
-    color: '#0056b3',
+    color: '#4169E1',
     fontWeight: 'bold',
   },
   content: {
@@ -607,14 +609,14 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#0056b3',
+    backgroundColor: '#4169E1',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
   },
   contactMethodText: {
     fontSize: 14,
-    color: '#0056b3',
+    color: '#4169E1',
   },
   formTitle: {
     fontSize: 16,
@@ -655,10 +657,10 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   required: {
-    color: '#e53935',
+    color: '#4169E1',
   },
   submitButton: {
-    backgroundColor: '#0056b3',
+    backgroundColor: '#4169E1',
     paddingVertical: 12,
     borderRadius: 6,
     alignItems: 'center',
@@ -688,7 +690,7 @@ const styles = StyleSheet.create({
   },
   ticketIdText: {
     fontSize: 16,
-    color: '#0056b3',
+    color: '#4169E1',
     fontWeight: '500',
     marginBottom: 8,
   },
@@ -760,7 +762,43 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     lineHeight: 20,
-  }
+  },
+  questionContainer: {
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+  },
+  question: {
+    color: COLORS.primary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  answer: {
+    color: '#333',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  contactButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  contactButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  icon: {
+    color: COLORS.primary,
+    marginRight: 8,
+  },
+  linkText: {
+    color: COLORS.primary,
+    textDecorationLine: 'underline',
+  },
 });
 
 

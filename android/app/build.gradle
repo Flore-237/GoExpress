@@ -27,7 +27,7 @@ android {
         }
 
         manifestPlaceholders = [
-            GOOGLE_PLAY_SERVICES_VERSION: "17.0.0"  // Changed version
+            GOOGLE_PLAY_SERVICES_VERSION: "18.2.0"
         ]
     }
 
@@ -52,9 +52,8 @@ android {
         }
         release {
             signingConfig signingConfigs.release
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             ndk {
                 debugSymbolLevel 'SYMBOL_TABLE'
             }
@@ -71,7 +70,7 @@ dependencies {
     implementation project(':react-native-splash-screen')
 
     // Update Google Play Services version
-    implementation "com.google.android.gms:play-services-base:17.0.0"
+    implementation "com.google.android.gms:play-services-base:18.2.0"
     
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

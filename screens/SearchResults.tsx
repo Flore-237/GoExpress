@@ -15,6 +15,7 @@ import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/Feather';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import moment from 'moment';
+import { getAgencyLogo } from '../utils/agencyUtils';
 
 const SearchResultsScreen = () => {
   const navigation = useNavigation();
@@ -117,8 +118,7 @@ const SearchResultsScreen = () => {
         activeOpacity={0.6}
       >
         <Image
-          source={{ uri: agency.logoUrl }}
-          defaultSource={require('../assets/images/busFondBon.jpeg')}
+          source={getAgencyLogo(item.agencyId)}
           style={styles.voyageImage}
         />
         <View style={styles.voyageInfo}>

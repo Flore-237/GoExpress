@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -15,85 +15,156 @@ import {
 import firestore from '@react-native-firebase/firestore';
 import Feather from 'react-native-vector-icons/Feather';
 import { format } from 'date-fns';
-import fr from 'date-fns/locale/fr';
-import { ROUTES } from '../App';
+import { fr } from 'date-fns/locale';
+import { ROUTES } from '../constants/routes';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 const { width } = Dimensions.get('window');
 
-const AgencyDetailScreen = ({ route, navigation }) => {
-  const { agencyId, agencyName } = route.params;
-  const [agency, setAgency] = useState(null);
-  const [trips, setTrips] = useState([]);
+interface Trip {
+  id: string;
+  departure?: string;
+  destination?: string;
+  dateDepart?: string;
+  heureDepart?: string;
+  prixClassique?: number;
+  prixVIP?: number;
+  placesClassiqueDisponibles?: number;
+  placesVIPDisponibles?: number;
+}
+
+interface Agency {
+  id: string;
+  name: string;
+  bannerUrl?: string;
+  logoUrl?: string;
+  services?: string[];
+  contactInfo?: {
+    phone?: string;
+    email?: string;
+    address?: string;
+  };
+  description?: string;
+  destinations?: string[];
+  pricing?: Record<string, number>;
+}
+
+type RootStackParamList = {
+  'SeatSelection': {
+    tripId: string;
+    agencyId: string;
+    tripDetails: {
+      id: string;
+      origin: string;
+      destination: string;
+      departureDate: string;
+      departureTime: string;
+      prixClassique: number;
+      prixVIP: number;
+      placesClassiqueDisponibles: number;
+      placesVIPDisponibles: number;
+      agencyName: string;
+    };
+  };
+};
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const AgencyDetailScreen = () => {
+  const navigation = useNavigation<NavigationProp>();
+  const route = useRoute();
+  const { agencyId, agencyName } = route.params as { agencyId: string; agencyName: string };
+  const [agency, setAgency] = useState<Agency | null>(null);
+  const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [activeTab, setActiveTab] = useState('info');
 
-  useEffect(() => {
-    const fetchAgencyDetails = async () => {
-      try {
-        setLoading(true);
-        
-        const agencyDoc = await firestore().collection('agencies').doc(agencyId).get();
-        if (agencyDoc.exists) {
-          setAgency({
-            id: agencyDoc.id,
-            ...agencyDoc.data()
-          });
-        } else {
-          throw new Error("Agence non trouvée");
-        }
-        
-        const tripsQuery = await firestore()
-          .collection('voyages')
-          .where('agencyId', '==', agencyId)
-          .get();
-          
-        const tripsData = [];
-        tripsQuery.forEach(doc => {
-          tripsData.push({
-            id: doc.id,
-            ...doc.data()
-          });
+  const fetchAgencyDetails = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      const agencyDoc = await firestore().collection('agencies').doc(agencyId).get();
+      if (agencyDoc.exists) {
+        const data = agencyDoc.data();
+        setAgency({
+          id: agencyDoc.id,
+          name: data?.name || '',
+          description: data?.description || undefined,
+          destinations: data?.destinations || undefined,
+          pricing: data?.pricing || undefined,
+          ...data
         });
+        console.log("Agency data fetched:", data);
+        console.log("Banner URL:", data?.bannerUrl);
+        console.log("Logo URL:", data?.logoUrl);
+      } else {
+        throw new Error("Agence non trouvée");
+      }
+      
+      const tripsQuery = await firestore()
+        .collection('voyages')
+        .where('agencyId', '==', agencyId)
+        .get();
         
-        tripsData.sort((a, b) => {
-          const dateA = a.dateDepart ? new Date(a.dateDepart) : new Date();
-          const dateB = b.dateDepart ? new Date(b.dateDepart) : new Date();
-          
-          if (dateA < dateB) return -1;
-          if (dateA > dateB) return 1;
-          
+      const tripsData: Trip[] = [];
+      tripsQuery.forEach(doc => {
+        const data = doc.data();
+        tripsData.push({
+          id: doc.id,
+          departure: data.departure,
+          destination: data.destination,
+          dateDepart: data.dateDepart,
+          heureDepart: data.heureDepart,
+          prixClassique: data.prixClassique,
+          prixVIP: data.prixVIP,
+          placesClassiqueDisponibles: data.placesClassiqueDisponibles,
+          placesVIPDisponibles: data.placesVIPDisponibles
+        });
+      });
+      
+      tripsData.sort((a, b) => {
+        const dateA = a.dateDepart ? new Date(a.dateDepart) : new Date();
+        const dateB = b.dateDepart ? new Date(b.dateDepart) : new Date();
+        
+        if (dateA < dateB) return -1;
+        if (dateA > dateB) return 1;
+        
+        if (a.heureDepart && b.heureDepart) {
           if (a.heureDepart < b.heureDepart) return -1;
           if (a.heureDepart > b.heureDepart) return 1;
-          
-          return 0;
-        });
+        }
         
-        setTrips(tripsData);
-        setLoading(false);
-      } catch (err) {
-        console.error("Erreur lors du chargement des détails:", err);
-        setError(true);
-        setLoading(false);
-      }
-    };
-
-    fetchAgencyDetails();
+        return 0;
+      });
+      
+      setTrips(tripsData);
+      setLoading(false);
+    } catch (err: any) {
+      console.error("Erreur lors du chargement des détails:", err);
+      setError(true);
+      setLoading(false);
+    }
   }, [agencyId]);
 
-  const handleCall = (phone) => {
+  useEffect(() => {
+    fetchAgencyDetails();
+  }, [agencyId, fetchAgencyDetails]);
+
+  const handleCall = (phone: string) => {
     if (phone) {
       Linking.openURL(`tel:${phone}`);
     }
   };
 
-  const handleEmail = (email) => {
+  const handleEmail = (email: string) => {
     if (email) {
       Linking.openURL(`mailto:${email}`);
     }
   };
 
-  const handleBookTrip = (trip) => {
+  const handleBookTrip = (trip: Trip) => {
     const tripDetails = {
       id: trip.id,
       origin: trip.departure || '',
@@ -107,67 +178,70 @@ const AgencyDetailScreen = ({ route, navigation }) => {
       agencyName: agency?.name || agencyName
     };
     
-    navigation.navigate(ROUTES.SEAT_SELECTION, { 
+    navigation.navigate('SeatSelection', { 
       tripId: trip.id,
       agencyId,
       tripDetails: tripDetails
     });
   };
 
-  const getImageSource = (uri, type = 'banner') => {
-  if (uri && uri.startsWith('http')) {
-    return { uri };
-  }
+  const getImageSource = (uri: string | undefined, type = 'banner') => {
+    console.log(`getImageSource called for type ${type} with URI: ${uri}`);
+    if (uri && uri.startsWith('http')) {
+      console.log("getImageSource: URI is HTTP, returning {uri}");
+      return { uri };
+    }
   
-  const agencyNameLower = agency.name ? agency.name.toLowerCase() : '';
+    const currentAgencyId = agency?.id; 
+    console.log("getImageSource: currentAgencyId=", currentAgencyId);
   
-  // BUCA
-  if (agencyNameLower.includes('buca')) {
-    return type === 'logo' 
-      ? require('../assets/images/BucaLogo.jpg')
-      : require('../assets/images/BucaVoyage.jpg');
-  } 
-  // GENERALE 
-  else if (agencyNameLower.includes('generale') || 
-           agencyNameLower.includes('générale') ||
-           agencyNameLower.includes('general') ||
-           agencyNameLower.includes('géneral')) {
-    return type === 'logo'
-      ? require('../assets/images/generaleLogo.jpg')
-      : require('../assets/images/GeneraleExpress.png');
-  } 
-  // TOURISTIQUE
-  else if (agencyNameLower.includes('touristique') || 
-           agencyNameLower.includes('tourist')) {
-    return type === 'logo'
-      ? require('../assets/images/trouristiqueLogo.jpg')
-      : require('../assets/images/touristique.jpg');
-  }
-  // TRESOR
-  else if (agencyNameLower.includes('tresor') || 
-           agencyNameLower.includes('trésor')) {
-    return type === 'logo'
-      ? require('../assets/images/logo.png')  // Utilise logo.png générique ou créez tresorLogo.jpg
-      : require('../assets/images/TresorVoyage.jpeg');
-  }
+    // BUCA
+    if (currentAgencyId === 'bucca_voyage') {
+      console.log("getImageSource: Matched BUCA by ID");
+      return type === 'logo' 
+        ? require('../assets/images/BucaLogo.jpg') 
+        : require('../assets/images/BucaVoyage.jpg');  
+    } 
+    // GENERALE 
+    else if (currentAgencyId === 'general_express_voyage') {
+      console.log("getImageSource: Matched GENERALE by ID");
+      return type === 'logo'
+        ? require('../assets/images/generaleLogo.jpg')
+        : require('../assets/images/GeneraleExpress.png');
+    } 
+    // TOURISTIQUE
+    else if (currentAgencyId === 'touristique_express_voyage') {
+      console.log("getImageSource: Matched TOURISTIQUE by ID");
+      return type === 'logo'
+        ? require('../assets/images/trouristiqueLogo.jpg')  
+        : require('../assets/images/touristique.jpg');
+    }
+    // TRESOR
+    else if (currentAgencyId === 'tresor_voyage') {
+      console.log("getImageSource: Matched TRESOR by ID");
+      return type === 'logo'
+        ? require('../assets/images/logo.png')  
+        : require('../assets/images/TresorVoyage.jpeg');
+    }
   
-  // Images par défaut
-  return type === 'logo'
-    ? require('../assets/images/GoExpress.png')
-    : require('../assets/images/busFondBon.jpeg');
-};
+    // Images par défaut
+    console.log("getImageSource: No match by ID, returning default");
+    return type === 'logo'
+      ? require('../assets/images/GoExpress.png')
+      : require('../assets/images/busFondBon.jpeg');
+  };
 
 
-  const formatDate = (date) => {
+  const formatDate = (date: Date) => {
     if (!date) return 'N/A';
     try {
       return format(date, 'PPP', { locale: fr });
-    } catch (e) {
+    } catch (e: any) {
       return 'Date invalide';
     }
   };
 
-  const getServiceIcon = (service) => {
+  const getServiceIcon = (service: string) => {
     switch(service.toLowerCase()) {
       case 'wi-fi': return 'wifi';
       case 'climatisation': return 'thermometer';
@@ -215,7 +289,7 @@ const AgencyDetailScreen = ({ route, navigation }) => {
         >
           <Feather name="arrow-left" size={24} color="white" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{agency.name}</Text>
+        <Text style={styles.headerTitle}>{agency?.name}</Text>
         <TouchableOpacity style={styles.favoriteButton}>
           <Feather name="heart" size={22} color="white" />
         </TouchableOpacity>
@@ -227,13 +301,13 @@ const AgencyDetailScreen = ({ route, navigation }) => {
       >
         <View style={styles.bannerContainer}>
           <Image 
-            source={getImageSource(agency.bannerUrl, 'banner')}
+            source={getImageSource(agency?.bannerUrl, 'banner')}
             style={styles.bannerImage}
             defaultSource={require('../assets/images/busFondBon.jpeg')}
           />
           <View style={styles.overlayLogo}>
             <Image 
-              source={getImageSource(agency.logoUrl, 'logo')}
+              source={getImageSource(agency?.logoUrl, 'logo')}
               style={styles.logoImage}
               defaultSource={require('../assets/images/GoExpress.png')}
             />
@@ -274,14 +348,14 @@ const AgencyDetailScreen = ({ route, navigation }) => {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>À propos</Text>
               <Text style={styles.descriptionText}>
-                {agency.description || "Aucune description disponible pour cette agence."}
+                {agency?.description || "Aucune description disponible pour cette agence."}
               </Text>
             </View>
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Services</Text>
               <View style={styles.servicesContainer}>
-                {agency.services && agency.services.length > 0 ? (
+                {agency?.services && agency.services.length > 0 ? (
                   agency.services.map((service, index) => (
                     <View key={index} style={styles.serviceItem}>
                       <Feather name={getServiceIcon(service)} size={16} color="#4169E1" />
@@ -297,7 +371,7 @@ const AgencyDetailScreen = ({ route, navigation }) => {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Destinations</Text>
               <View style={styles.destinationsContainer}>
-                {agency.destinations && agency.destinations.length > 0 ? (
+                {agency?.destinations && agency.destinations.length > 0 ? (
                   agency.destinations.map((destination, index) => (
                     <View key={index} style={styles.destinationTag}>
                       <Feather name="map-pin" size={14} color="#4169E1" />
@@ -313,10 +387,10 @@ const AgencyDetailScreen = ({ route, navigation }) => {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Contact</Text>
               
-              {agency.contactInfo?.phone ? (
+              {agency?.contactInfo?.phone ? (
                 <TouchableOpacity 
                   style={styles.contactItem}
-                  onPress={() => handleCall(agency.contactInfo.phone)}
+                  onPress={() => agency?.contactInfo?.phone && handleCall(agency.contactInfo.phone)}
                 >
                   <Feather name="phone" size={18} color="#4169E1" />
                   <Text style={styles.contactText}>{agency.contactInfo.phone}</Text>
@@ -325,10 +399,10 @@ const AgencyDetailScreen = ({ route, navigation }) => {
                 <Text style={styles.noDataText}>Aucun numéro de téléphone</Text>
               )}
               
-              {agency.contactInfo?.email ? (
+              {agency?.contactInfo?.email ? (
                 <TouchableOpacity 
                   style={styles.contactItem}
-                  onPress={() => handleEmail(agency.contactInfo.email)}
+                  onPress={() => agency?.contactInfo?.email && handleEmail(agency.contactInfo.email)}
                 >
                   <Feather name="mail" size={18} color="#4169E1" />
                   <Text style={styles.contactText}>{agency.contactInfo.email}</Text>
@@ -337,7 +411,7 @@ const AgencyDetailScreen = ({ route, navigation }) => {
                 <Text style={styles.noDataText}>Aucun email renseigné</Text>
               )}
               
-              {agency.contactInfo?.address ? (
+              {agency?.contactInfo?.address ? (
                 <View style={styles.contactItem}>
                   <Feather name="map" size={18} color="#4169E1" />
                   <Text style={styles.contactText}>{agency.contactInfo.address}</Text>
@@ -350,7 +424,7 @@ const AgencyDetailScreen = ({ route, navigation }) => {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Tarifs</Text>
               <View style={styles.pricingContainer}>
-                {agency.pricing && Object.keys(agency.pricing).length > 0 ? (
+                {agency?.pricing && Object.keys(agency.pricing).length > 0 ? (
                   Object.entries(agency.pricing).map(([type, price], index) => (
                     <View key={index} style={styles.pricingItem}>
                       <Text style={styles.seatTypeText}>{type}</Text>

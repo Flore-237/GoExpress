@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Image,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
@@ -12,20 +11,26 @@ import {
   Alert,
   ActivityIndicator,
   Dimensions,
+  StatusBar,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { auth, db } from '../config/firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { storage } from '../utils/storage';
+import { ROUTES } from '../constants/routes';
+import { useAuth } from '../contexts/AuthContext';
 import * as Animatable from 'react-native-animatable';
-import { ROUTES } from '../App';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 const RegistrationScreen = () => {
   const navigation = useNavigation();
+  const { storeUserData } = useAuth();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -38,69 +43,61 @@ const RegistrationScreen = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [focusedField, setFocusedField] = useState('');
 
-  // Validation complète du formulaire
+  // Validation du formulaire
   const validateForm = () => {
     const newErrors = {};
 
-    // Validation prénom
     if (!formData.firstName.trim()) {
-      newErrors.firstName = 'Le prénom est requis';
+      newErrors.firstName = 'Prénom requis';
     } else if (formData.firstName.trim().length < 2) {
-      newErrors.firstName = 'Le prénom doit contenir au moins 2 caractères';
-    } else if (!/^[a-zA-ZÀ-ÿ\s'-]+$/.test(formData.firstName.trim())) {
-      newErrors.firstName = 'Le prénom ne doit contenir que des lettres';
+      newErrors.firstName = 'Minimum 2 caractères';
     }
 
-    // Validation nom
     if (!formData.lastName.trim()) {
-      newErrors.lastName = 'Le nom est requis';
+      newErrors.lastName = 'Nom requis';
     } else if (formData.lastName.trim().length < 2) {
-      newErrors.lastName = 'Le nom doit contenir au moins 2 caractères';
-    } else if (!/^[a-zA-ZÀ-ÿ\s'-]+$/.test(formData.lastName.trim())) {
-      newErrors.lastName = 'Le nom ne doit contenir que des lettres';
+      newErrors.lastName = 'Minimum 2 caractères';
     }
 
-    // Validation email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!formData.email.trim()) {
-      newErrors.email = 'L\'email est requis';
+      newErrors.email = 'Email requis';
     } else if (!emailRegex.test(formData.email.trim())) {
-      newErrors.email = 'Format d\'email invalide';
+      newErrors.email = 'Email invalide';
     }
 
-    // Validation téléphone (format camerounais/international)
     const phoneRegex = /^[0-9]{9,15}$/;
     const cleanPhone = formData.phone.replace(/[\s-+()]/g, '');
     if (!formData.phone.trim()) {
-      newErrors.phone = 'Le téléphone est requis';
+      newErrors.phone = 'Téléphone requis';
     } else if (!phoneRegex.test(cleanPhone)) {
-      newErrors.phone = 'Numéro de téléphone invalide (9-15 chiffres)';
+      newErrors.phone = 'Numéro invalide';
     }
 
-    // Simplifier la validation du mot de passe
     if (!formData.password) {
-      newErrors.password = 'Le mot de passe est requis';
+      newErrors.password = 'Mot de passe requis';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'Minimum 6 caractères';
     }
 
-    // Validation confirmation mot de passe
     if (!formData.confirmPassword) {
-      newErrors.confirmPassword = 'Veuillez confirmer le mot de passe';
+      newErrors.confirmPassword = 'Confirmation requise';
     } else if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Les mots de passe ne correspondent pas';
+      newErrors.confirmPassword = 'Mots de passe différents';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  // Fonction d'inscription améliorée
+  // Gestion de l'inscription
   const handleRegistration = async () => {
     if (!validateForm()) return;
 
     setIsLoading(true);
     try {
-      // Création du compte Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(
         auth, 
         formData.email.trim().toLowerCase(), 
@@ -108,7 +105,6 @@ const RegistrationScreen = () => {
       );
       const user = userCredential.user;
 
-      // Préparation des données utilisateur pour Firestore
       const userData = {
         uid: user.uid,
         id: user.uid,
@@ -122,10 +118,9 @@ const RegistrationScreen = () => {
         profileImage: null,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
-        // Informations supplémentaires
         isEmailVerified: false,
         isPhoneVerified: false,
-        lastLoginAt: null,
+        lastLoginAt: new Date().toISOString(),
         preferences: {
           language: 'fr',
           notifications: true,
@@ -138,422 +133,517 @@ const RegistrationScreen = () => {
         }
       };
 
-      // Sauvegarde dans Firestore
       await setDoc(doc(db, 'users', user.uid), userData);
-
-      // Confirmation et redirection
-      Alert.alert(
-        '🎉 Inscription réussie !',
-        `Bienvenue ${formData.firstName} ! Votre compte a été créé avec succès. Vous allez être redirigé vers la page de connexion.`,
-        [
-          {
-            text: 'Continuer',
-            onPress: () => {
-              // Déconnexion pour forcer la connexion via LoginScreen
-              auth.signOut();
-              navigation.navigate(ROUTES.LOGIN, {
-                registrationSuccess: true,
-                userEmail: formData.email.trim().toLowerCase()
-              });
-            }
-          }
-        ]
-      );
+      await handleLoginSuccess(userData);
 
     } catch (error) {
       console.error("Erreur d'inscription:", error);
-      let message = "Une erreur est survenue lors de l'inscription.";
+      let message = "Erreur lors de l'inscription";
 
       switch (error.code) {
         case 'auth/email-already-in-use':
-          message = 'Cette adresse email est déjà utilisée. Essayez de vous connecter ou utilisez une autre adresse.';
+          message = 'Cette adresse email est déjà utilisée';
           break;
         case 'auth/invalid-email':
-          message = 'Format d\'adresse email invalide.';
+          message = 'Format d\'email invalide';
           break;
         case 'auth/weak-password':
-          message = 'Le mot de passe est trop faible. Utilisez au moins 8 caractères avec des majuscules, minuscules, chiffres et caractères spéciaux.';
+          message = 'Mot de passe trop faible';
           break;
         case 'auth/network-request-failed':
-          message = 'Erreur de connexion. Vérifiez votre connexion internet et réessayez.';
-          break;
-        case 'auth/operation-not-allowed':
-          message = 'L\'inscription par email/mot de passe n\'est pas activée.';
+          message = 'Vérifiez votre connexion internet';
           break;
         default:
-          message = `Erreur technique: ${error.message}`;
+          message = 'Une erreur est survenue';
       }
 
-      Alert.alert('❌ Erreur d\'inscription', message);
+      Alert.alert('Erreur', message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Mise à jour des champs avec validation en temps réel
+  const handleLoginSuccess = async (userData) => {
+    try {
+      await storage.storeUserData(userData);
+      Alert.alert(
+        'Bienvenue !',
+        `Votre compte a été créé avec succès`,
+        [{
+          text: 'Continuer',
+          onPress: () => navigation.replace(ROUTES.LOGIN)
+        }]
+      );
+    } catch (error) {
+      console.error('Erreur de stockage:', error);
+    }
+  };
+
   const updateFormData = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    
-    // Effacer l'erreur du champ modifié
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: null }));
-    }
-
-    // Validation en temps réel pour certains champs
-    if (field === 'confirmPassword' && formData.password && value) {
-      if (formData.password !== value) {
-        setErrors(prev => ({ ...prev, confirmPassword: 'Les mots de passe ne correspondent pas' }));
-      }
     }
   };
 
   const navigateToLogin = () => {
-    navigation.navigate(ROUTES.LOGIN);
+    navigation.replace(ROUTES.LOGIN);
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContainer}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Header avec logo et animation */}
-          <Animatable.View animation="fadeInDown" duration={1000} style={styles.logoContainer}>
-            <Image
-              source={require('../assets/images/GoExpress.png')}
-              style={styles.logo}
-              resizeMode="contain"
-            />
-            <Text style={styles.title}>Rejoignez GoExpress</Text>
-            <Text style={styles.subtitle}>Créez votre compte en quelques étapes</Text>
-          </Animatable.View>
-
-          {/* Formulaire d'inscription */}
-          <Animatable.View animation="fadeInUp" duration={1000} delay={200} style={styles.formContainer}>
-            {/* Prénom */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Prénom *</Text>
-              <View style={[styles.inputContainer, errors.firstName && styles.inputError]}>
-                <Icon name="person-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Votre prénom"
-                  placeholderTextColor="#c7c7cc"
-                  value={formData.firstName}
-                  onChangeText={(text) => updateFormData('firstName', text)}
-                  autoCapitalize="words"
-                  maxLength={50}
-                />
-              </View>
-              {errors.firstName && <Text style={styles.errorText}>{errors.firstName}</Text>}
-            </View>
-
-            {/* Nom */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Nom *</Text>
-              <View style={[styles.inputContainer, errors.lastName && styles.inputError]}>
-                <Icon name="person-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Votre nom"
-                  placeholderTextColor="#c7c7cc"
-                  value={formData.lastName}
-                  onChangeText={(text) => updateFormData('lastName', text)}
-                  autoCapitalize="words"
-                  maxLength={50}
-                />
-              </View>
-              {errors.lastName && <Text style={styles.errorText}>{errors.lastName}</Text>}
-            </View>
-
-            {/* Email */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Email *</Text>
-              <View style={[styles.inputContainer, errors.email && styles.inputError]}>
-                <Icon name="mail-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="votre@email.com"
-                  placeholderTextColor="#c7c7cc"
-                  value={formData.email}
-                  onChangeText={(text) => updateFormData('email', text)}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  maxLength={100}
-                />
-              </View>
-              {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-            </View>
-
-            {/* Téléphone */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Téléphone *</Text>
-              <View style={[styles.inputContainer, errors.phone && styles.inputError]}>
-                <Icon name="call-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="655 78 38 79"
-                  placeholderTextColor="#c7c7cc"
-                  value={formData.phone}
-                  onChangeText={(text) => updateFormData('phone', text)}
-                  keyboardType="phone-pad"
-                  maxLength={15}
-                />
-              </View>
-              {errors.phone && <Text style={styles.errorText}>{errors.phone}</Text>}
-            </View>
-
-            {/* Mot de passe */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Mot de passe *</Text>
-              <View style={[styles.inputContainer, errors.password && styles.inputError]}>
-                <Icon name="lock-closed-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Minimum 8 caractères"
-                  placeholderTextColor="#c7c7cc"
-                  value={formData.password}
-                  onChangeText={(text) => updateFormData('password', text)}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  maxLength={50}
-                />
-                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                  <Icon
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={20}
-                    color="#8e8e93"
-                  />
-                </TouchableOpacity>
-              </View>
-              
-              {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
-            </View>
-
-            {/* Confirmation mot de passe */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Confirmer le mot de passe *</Text>
-              <View style={[styles.inputContainer, errors.confirmPassword && styles.inputError]}>
-                <Icon name="lock-closed-outline" size={20} color="#8e8e93" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Répétez votre mot de passe"
-                  placeholderTextColor="#c7c7cc"
-                  value={formData.confirmPassword}
-                  onChangeText={(text) => updateFormData('confirmPassword', text)}
-                  secureTextEntry={!showConfirmPassword}
-                  autoCapitalize="none"
-                  maxLength={50}
-                />
-                <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-                  <Icon
-                    name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={20}
-                    color="#8e8e93"
-                  />
-                </TouchableOpacity>
-              </View>
-              {errors.confirmPassword && <Text style={styles.errorText}>{errors.confirmPassword}</Text>}
-            </View>
-
-            {/* Bouton d'inscription */}
-            <TouchableOpacity
-              style={[styles.registerButton, isLoading && styles.disabledButton]}
-              onPress={handleRegistration}
-              disabled={isLoading}
-              activeOpacity={0.8}
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.keyboardView}
+          >
+            <ScrollView
+              contentContainerStyle={styles.scrollContainer}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             >
-              {isLoading ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="small" color="#fff" />
-                  <Text style={styles.loadingText}>Création du compte...</Text>
+              {/* Header avec logo */}
+              <Animatable.View animation="fadeInDown" duration={1000} style={styles.header}>
+                <View style={styles.logoContainer}>
+                  <Image 
+                    source={require('../assets/images/GoExpress.png')}
+                    style={styles.logo}
+                    resizeMode="contain"
+                  />
                 </View>
-              ) : (
-                <>
-                  <Text style={styles.registerButtonText}>Créer mon compte</Text>
-                  <Icon name="arrow-forward" size={20} color="#fff" style={styles.buttonIcon} />
-                </>
-              )}
-            </TouchableOpacity>
+                <Text style={styles.title}>Créer votre compte</Text>
+                <Text style={styles.subtitle}>
+                  Rejoignez notre communauté et découvrez une nouvelle expérience
+                </Text>
+              </Animatable.View>
 
-            {/* Conditions d'utilisation */}
-            <Text style={styles.termsText}>
-              En créant un compte, vous acceptez nos{' '}
-              <Text style={styles.termsLink}>Conditions d'utilisation</Text>
-              {' '}et notre{' '}
-              <Text style={styles.termsLink}>Politique de confidentialité</Text>
-            </Text>
+              {/* Formulaire */}
+              <Animatable.View animation="fadeInUp" duration={1000} delay={300} style={styles.formContainer}>
+                
+                {/* Champs nom et prénom */}
+                    <View style={styles.inputGroup}>
+        <Text style={styles.fieldLabel}>Prénom</Text>
+        <View style={[
+          styles.inputContainer,
+          focusedField === 'firstName' && styles.inputFocused,
+          errors.firstName && styles.inputError
+        ]}>
+          <TextInput
+            style={styles.input}
+            placeholder="Entrez votre prénom"
+            placeholderTextColor="#A0A0A0"
+            value={formData.firstName}
+            onChangeText={(text) => updateFormData('firstName', text)}
+            onFocus={() => setFocusedField('firstName')}
+            onBlur={() => setFocusedField('')}
+            autoCapitalize="words"
+          />
+        </View>
+        {errors.firstName && <Text style={styles.errorText}>{errors.firstName}</Text>}
+      </View>
 
-            {/* Lien vers connexion */}
-            <TouchableOpacity onPress={navigateToLogin} style={styles.loginLink}>
-              <Text style={styles.loginLinkText}>
-                Vous avez déjà un compte ?{' '}
-                <Text style={styles.loginLinkBold}>Se connecter</Text>
-              </Text>
-            </TouchableOpacity>
-          </Animatable.View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      <View style={styles.inputGroup}>
+        <Text style={styles.fieldLabel}>Nom</Text>
+        <View style={[
+          styles.inputContainer,
+          focusedField === 'lastName' && styles.inputFocused,
+          errors.lastName && styles.inputError
+        ]}>
+          <TextInput
+            style={styles.input}
+            placeholder="Entrez votre nom"
+            placeholderTextColor="#A0A0A0"
+            value={formData.lastName}
+            onChangeText={(text) => updateFormData('lastName', text)}
+            onFocus={() => setFocusedField('lastName')}
+            onBlur={() => setFocusedField('')}
+            autoCapitalize="words"
+          />
+        </View>
+        {errors.lastName && <Text style={styles.errorText}>{errors.lastName}</Text>}
+      </View>
+
+                {/* Fin des champs nom et prénom */}  
+
+                {/* Email */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.fieldLabel}>Adresse email</Text>
+                  <View style={[
+                    styles.inputContainer,
+                    focusedField === 'email' && styles.inputFocused,
+                    errors.email && styles.inputError
+                  ]}>
+                    <Icon name="mail-outline" size={22} color="#4169E1" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="votre@email.com"
+                      placeholderTextColor="#A0A0A0"
+                      value={formData.email}
+                      onChangeText={(text) => updateFormData('email', text)}
+                      onFocus={() => setFocusedField('email')}
+                      onBlur={() => setFocusedField('')}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  </View>
+                  {errors.email && (
+                    <Text style={styles.errorText}>{errors.email}</Text>
+                  )}
+                </View>
+
+                {/* Téléphone */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.fieldLabel}>Numéro de téléphone</Text>
+                  <View style={[
+                    styles.inputContainer,
+                    focusedField === 'phone' && styles.inputFocused,
+                    errors.phone && styles.inputError
+                  ]}>
+                    <Icon name="call-outline" size={22} color="#4169E1" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="+33 6 12 34 56 78"
+                      placeholderTextColor="#A0A0A0"
+                      value={formData.phone}
+                      onChangeText={(text) => updateFormData('phone', text)}
+                      onFocus={() => setFocusedField('phone')}
+                      onBlur={() => setFocusedField('')}
+                      keyboardType="phone-pad"
+                    />
+                  </View>
+                  {errors.phone && (
+                    <Text style={styles.errorText}>{errors.phone}</Text>
+                  )}
+                </View>
+
+                {/* Mot de passe */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.fieldLabel}>Mot de passe</Text>
+                  <View style={[
+                    styles.inputContainer,
+                    focusedField === 'password' && styles.inputFocused,
+                    errors.password && styles.inputError
+                  ]}>
+                    <Icon name="lock-closed-outline" size={22} color="#4169E1" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Minimum 6 caractères"
+                      placeholderTextColor="#A0A0A0"
+                      value={formData.password}
+                      onChangeText={(text) => updateFormData('password', text)}
+                      onFocus={() => setFocusedField('password')}
+                      onBlur={() => setFocusedField('')}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                    />
+                    <TouchableOpacity 
+                      onPress={() => setShowPassword(!showPassword)}
+                      style={styles.eyeButton}
+                    >
+                      <Icon
+                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={22}
+                        color="#4169E1"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  {errors.password && (
+                    <Text style={styles.errorText}>{errors.password}</Text>
+                  )}
+                </View>
+
+                {/* Confirmation mot de passe */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.fieldLabel}>Confirmer le mot de passe</Text>
+                  <View style={[
+                    styles.inputContainer,
+                    focusedField === 'confirmPassword' && styles.inputFocused,
+                    errors.confirmPassword && styles.inputError
+                  ]}>
+                    <Icon name="lock-closed-outline" size={22} color="#4169E1" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Confirmez votre mot de passe"
+                      placeholderTextColor="#A0A0A0"
+                      value={formData.confirmPassword}
+                      onChangeText={(text) => updateFormData('confirmPassword', text)}
+                      onFocus={() => setFocusedField('confirmPassword')}
+                      onBlur={() => setFocusedField('')}
+                      secureTextEntry={!showConfirmPassword}
+                      autoCapitalize="none"
+                    />
+                    <TouchableOpacity 
+                      onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                      style={styles.eyeButton}
+                    >
+                      <Icon
+                        name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={22}
+                        color="#4169E1"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  {errors.confirmPassword && (
+                    <Text style={styles.errorText}>{errors.confirmPassword}</Text>
+                  )}
+                </View>
+
+                {/* Bouton d'inscription */}
+                <Animatable.View animation="pulse" iterationCount="infinite" iterationDelay={3000}>
+                  <TouchableOpacity
+                    style={[styles.registerButton, isLoading && styles.buttonDisabled]}
+                    onPress={handleRegistration}
+                    disabled={isLoading}
+                    activeOpacity={0.9}
+                  >
+                    <LinearGradient
+                      colors={['#4169E1', '#1E3A8A']}
+                      style={styles.buttonGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : (
+                        <>
+                          <Text style={styles.buttonText}>Créer mon compte</Text>
+                          <Icon name="arrow-forward-circle" size={24} color="#ffffff" />
+                        </>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </Animatable.View>
+
+                {/* Conditions d'utilisation */}
+                <Text style={styles.termsText}>
+                  En créant un compte, vous acceptez nos{' '}
+                  <Text style={styles.termsLink}>Conditions d'utilisation</Text>
+                  {' '}et notre{' '}
+                  <Text style={styles.termsLink}>Politique de confidentialité</Text>
+                </Text>
+
+                {/* Séparateur */}
+                <View style={styles.separator}>
+                  <View style={styles.separatorLine} />
+                  <Text style={styles.separatorText}>ou</Text>
+                  <View style={styles.separatorLine} />
+                </View>
+
+                {/* Lien de connexion */}
+                <TouchableOpacity 
+                  onPress={navigateToLogin}
+                  style={styles.loginButton}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.loginButtonText}>
+                    Vous avez déjà un compte ? <Text style={styles.loginLink}>Se connecter</Text>
+                  </Text>
+                </TouchableOpacity>
+              </Animatable.View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </View>
+    </>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f2f2f7',
+    backgroundColor: '#ffffff',
+  },
+  safeArea: {
+    flex: 1,
   },
   keyboardView: {
     flex: 1,
   },
   scrollContainer: {
     flexGrow: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingTop: 20,
-    paddingBottom: 40,
+    paddingBottom: 30,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 40,
   },
   logoContainer: {
-    alignItems: 'center',
     marginBottom: 30,
   },
   logo: {
-    width: 100,
-    height: 100,
-    marginBottom: 20,
+    width: 120,
+    height: 120,
   },
   title: {
     fontSize: 32,
     fontWeight: '700',
-    color: '#1d1d1f',
-    marginBottom: 8,
+    color: '#1a1a1a',
+    marginBottom: 12,
     textAlign: 'center',
+    letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 17,
-    color: '#8e8e93',
+    fontSize: 16,
+    color: '#666666',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 24,
+    paddingHorizontal: 20,
   },
   formContainer: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
+    flex: 1,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  nameField: {
+    flex: 1,
+    marginHorizontal: 6,
   },
   inputGroup: {
     marginBottom: 20,
   },
-  inputLabel: {
+  fieldLabel: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1d1d1f',
+    color: '#333333',
     marginBottom: 8,
+    marginLeft: 4,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f2f2f7',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#d1d1d6',
-    paddingHorizontal: 16,
-    height: 56,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  inputError: {
-    borderColor: '#ff3b30',
-    backgroundColor: '#fff5f5',
-  },
-  inputIcon: {
-    marginRight: 12,
-  },
-  textInput: {
-    flex: 1,
-    fontSize: 17,
-    color: '#1d1d1f',
-    fontWeight: '400',
-  },
-  errorText: {
-    color: '#ff3b30',
-    fontSize: 14,
-    marginTop: 6,
-    marginLeft: 4,
-    fontWeight: '400',
-  },
-  registerButton: {
-    backgroundColor: '#007aff',
-    borderRadius: 12,
-    height: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-    marginBottom: 16,
-    shadowColor: '#007aff',
+  inputFocused: {
+    borderColor: '#4169E1',
+    backgroundColor: '#ffffff',
+    shadowColor: '#4169E1',
     shadowOffset: {
       width: 0,
       height: 4,
     },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  inputError: {
+    borderColor: '#EF4444',
+    backgroundColor: '#FEF2F2',
+  },
+  inputIcon: {
+    marginRight: 14,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    color: '#1a1a1a',
+    fontWeight: '500',
+  },
+  eyeButton: {
+    padding: 4,
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 13,
+    marginTop: 6,
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+  registerButton: {
+    borderRadius: 16,
+    marginTop: 12,
+    marginBottom: 24,
+    shadowColor: '#4169E1',
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowRadius: 16,
+    elevation: 10,
   },
-  disabledButton: {
-    opacity: 0.6,
+  buttonDisabled: {
+    opacity: 0.7,
   },
-  registerButtonText: {
+  buttonGradient: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 18,
+    borderRadius: 16,
+  },
+  buttonText: {
     color: '#ffffff',
     fontSize: 18,
-    fontWeight: '600',
-    marginRight: 8,
-  },
-  buttonIcon: {
-    marginLeft: 4,
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '500',
-    marginLeft: 8,
+    fontWeight: '700',
+    marginRight: 12,
+    letterSpacing: 0.5,
   },
   termsText: {
-    fontSize: 14,
-    color: '#8e8e93',
+    fontSize: 13,
+    color: '#666666',
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 20,
+    marginBottom: 30,
+    paddingHorizontal: 20,
   },
   termsLink: {
-    color: '#007aff',
+    color: '#4169E1',
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  separator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  separatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E5E7EB',
+  },
+  separatorText: {
+    paddingHorizontal: 16,
+    fontSize: 14,
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  loginButton: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  loginButtonText: {
+    fontSize: 16,
+    color: '#666666',
     fontWeight: '500',
   },
   loginLink: {
-    alignItems: 'center',
-    paddingVertical: 16,
-  },
-  loginLinkText: {
-    fontSize: 16,
-    color: '#8e8e93',
-  },
-  loginLinkBold: {
-    color: '#007aff',
-    fontWeight: '600',
+    color: '#4169E1',
+    fontWeight: '700',
   },
 });
 

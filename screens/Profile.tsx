@@ -374,6 +374,10 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
     // navigation.navigate('ReservationHistory');
   };
 
+  const handleReservationHistory = () => {
+    navigation.navigate('HistoriqueReservation'); // Changez 'MainStack' en 'HistoriqueReservation'
+  };
+
   const handleNavigateToHistory = () => {
     navigation.navigate(ROUTES.RESERVATION_HISTORY);
   };
@@ -565,15 +569,17 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
             icon="ticket-outline"
             title="Mes Réservations"
             subtitle="Voir l'historique des voyages"
-            onPress={navigateToReservations}
+            onPress={handleReservationHistory}
           />
           
+          {/* Supprimez ou commentez la section paramètres
           <ActionButton
             icon="settings-outline"
             title="Paramètres"
             subtitle="Gérer les préférences"
             onPress={() => navigation.navigate('Settings')}
           />
+          */}
         </Animatable.View>
       </ScrollView>
     </SafeAreaView>

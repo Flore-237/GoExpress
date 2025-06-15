@@ -14,12 +14,13 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import firestore from '@react-native-firebase/firestore';
+import { ROUTES } from '../constants/routes';
 
 const SeatSelectionScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   
-  // Extraction des paramètres avec valeurs par défaut
+  // Extraction des paramètres
   const { 
     tripId = '', 
     agencyId = '', 
@@ -37,60 +38,23 @@ const SeatSelectionScreen = () => {
     agencyDetails: searchAgencyDetails = {}
   } = route.params || {};
 
-  // Détermine la source des données
-  const isFromSearch = !!searchVoyage?.id || (origin && destination);
-
-  // Normalisation des données avec protections
-  const tripData = isFromSearch ? { 
-    ...searchVoyage,
+  // Normalisation des données
+  const tripData = {
+    ...(searchVoyage || tripDetails || {}),
     id: searchVoyage?.id || tripId || 'default_id',
-    origin: origin || searchVoyage?.departure || '',
-    destination: destination || searchVoyage?.destination || '',
-    departureTime: departureTime || searchVoyage?.heureDepart || '',
-    departureDate: departureDate || searchVoyage?.dateDepart || '',
-    prixClassique: classicPrice || price || searchVoyage?.prixClassique || 0,
-    prixVIP: vipPrice || searchVoyage?.prixVIP || 0,
-    agencyName: routeAgencyName || searchAgencyDetails?.name || '',
-    agencyId: agencyId || searchVoyage?.agencyId || '',
-    logoUrl: searchAgencyDetails?.logoUrl || '',
-    placesClassiqueDisponibles: searchVoyage?.placesClassiqueDisponibles || 0,
-    placesVIPDisponibles: searchVoyage?.placesVIPDisponibles || 0,
-    placesClassiqueTotal: searchVoyage?.placesClassiqueTotal || 70,
-    placesVIPTotal: searchVoyage?.placesVIPTotal || 45
-  } : tripDetails || {};
-
-  // Données du voyage avec valeurs par défaut
-  const voyage = {
-    id: tripData.id || 'default_trip_id',
-    departure: tripData.origin || tripData.departure || 'Ville inconnue',
-    destination: tripData.destination || 'Ville inconnue',
-    heureDepart: tripData.departureTime || tripData.heureDepart || '--:--',
-    dateDepart: tripData.departureDate || tripData.dateDepart || new Date().toISOString(),
-    agencyId: tripData.agencyId || agencyId || '',
-  };
-
-  // Informations sur l'agence avec valeurs par défaut
-  const agencyName = tripData.agencyName || routeAgencyName || 'Agence inconnue';
-  const logoUrl = tripData.logoUrl || 'https://via.placeholder.com/50';
-
-  // Prix avec valeurs par défaut
-  const prixClassique = tripData.prixClassique ? Number(tripData.prixClassique) : 5000;
-  const prixVip = tripData.prixVIP ? Number(tripData.prixVIP) : 7000;
-
-  // États pour les places disponibles (synchronisés avec Firebase)
-  const [placesClassiqueDisponibles, setPlacesClassiqueDisponibles] = useState(Number(tripData.placesClassiqueDisponibles) || 70);
-  const [placesVIPDisponibles, setPlacesVIPDisponibles] = useState(Number(tripData.placesVIPDisponibles) || 45);
-  const [placesClassiqueTotal] = useState(Number(tripData.placesClassiqueTotal) || 70);
-  const [placesVIPTotal] = useState(Number(tripData.placesVIPTotal) || 45);
-
-  const agencyDetails = {
-    id: tripData.agencyId || agencyId || 'default_agency_id',
-    name: agencyName,
-    logoUrl: logoUrl,
-    pricing: {
-      Classique: prixClassique,
-      VIP: prixVip
-    }
+    origin: origin || searchVoyage?.departure || tripDetails?.departure || '',
+    destination: destination || searchVoyage?.destination || tripDetails?.destination || '',
+    departureTime: departureTime || searchVoyage?.heureDepart || tripDetails?.heureDepart || '',
+    departureDate: departureDate || searchVoyage?.dateDepart || tripDetails?.dateDepart || '',
+    prixClassique: classicPrice || price || searchVoyage?.prixClassique || tripDetails?.prixClassique || 5000,
+    prixVIP: vipPrice || searchVoyage?.prixVIP || tripDetails?.prixVIP || 7000,
+    agencyName: routeAgencyName || searchAgencyDetails?.name || tripDetails?.agencyName || '',
+    agencyId: agencyId || searchVoyage?.agencyId || tripDetails?.agencyId || '',
+    logoUrl: searchAgencyDetails?.logoUrl || tripDetails?.logoUrl || '',
+    placesClassiqueDisponibles: searchVoyage?.placesClassiqueDisponibles || tripDetails?.placesClassiqueDisponibles || 70,
+    placesVIPDisponibles: searchVoyage?.placesVIPDisponibles || tripDetails?.placesVIPDisponibles || 45,
+    placesClassiqueTotal: searchVoyage?.placesClassiqueTotal || tripDetails?.placesClassiqueTotal || 70,
+    placesVIPTotal: searchVoyage?.placesVIPTotal || tripDetails?.placesVIPTotal || 45
   };
 
   // États initiaux
@@ -106,44 +70,13 @@ const SeatSelectionScreen = () => {
     vip: []
   });
 
-  // Écouter les changements en temps réel depuis Firebase
+  // Calcul du prix
   useEffect(() => {
-    if (!voyage.id || voyage.id === 'default_trip_id') {
-      console.log('ID de voyage invalide, impossible d\'écouter les changements Firebase');
-      return;
-    }
+    const pricePerSeat = selectedSeatType === 'Classique' ? tripData.prixClassique : tripData.prixVIP;
+    setCurrentPrice(pricePerSeat * selectedSeats.length);
+  }, [selectedSeatType, selectedSeats, tripData.prixClassique, tripData.prixVIP]);
 
-    console.log('Écoute des changements Firebase pour le voyage:', voyage.id);
-    
-    const unsubscribe = firestore()
-      .collection('voyages')
-      .doc(voyage.id)
-      .onSnapshot(
-        (documentSnapshot) => {
-          if (documentSnapshot.exists) {
-            const data = documentSnapshot.data();
-            console.log('Données mises à jour depuis Firebase:', data);
-            
-            // Mettre à jour les places disponibles
-            setPlacesClassiqueDisponibles(data.placesClassiqueDisponibles || 0);
-            setPlacesVIPDisponibles(data.placesVIPDisponibles || 0);
-            
-            // Récupérer les places réservées
-            fetchReservedSeats(voyage.id);
-          }
-        },
-        (error) => {
-          console.error('Erreur lors de l\'écoute des changements Firebase:', error);
-        }
-      );
-
-    // Récupération initiale des places réservées
-    fetchReservedSeats(voyage.id);
-
-    return () => unsubscribe();
-  }, [voyage.id]);
-
-  // Récupérer les places réservées depuis Firebase
+  // Récupérer les places réservées
   const fetchReservedSeats = async (voyageId) => {
     try {
       const reservationsSnapshot = await firestore()
@@ -158,13 +91,9 @@ const SeatSelectionScreen = () => {
       reservationsSnapshot.forEach(doc => {
         const reservation = doc.data();
         if (reservation.seatType === 'Classique') {
-          reservation.seats?.forEach(seat => {
-            classiqueReserved.push(seat.number);
-          });
+          reservation.seats?.forEach(seat => classiqueReserved.push(seat.number));
         } else if (reservation.seatType === 'VIP') {
-          reservation.seats?.forEach(seat => {
-            vipReserved.push(seat.number);
-          });
+          reservation.seats?.forEach(seat => vipReserved.push(seat.number));
         }
       });
 
@@ -172,28 +101,40 @@ const SeatSelectionScreen = () => {
         classique: classiqueReserved,
         vip: vipReserved
       });
-
-      console.log('Places réservées récupérées:', { classiqueReserved, vipReserved });
     } catch (error) {
       console.error('Erreur lors de la récupération des places réservées:', error);
     }
   };
 
+  // Écouter les changements en temps réel
+  useEffect(() => {
+    if (!tripData.id) return;
+
+    const unsubscribe = firestore()
+      .collection('voyages')
+      .doc(tripData.id)
+      .onSnapshot(
+        (documentSnapshot) => {
+          if (documentSnapshot.exists) {
+            fetchReservedSeats(tripData.id);
+          }
+        },
+        (error) => console.error('Erreur Firebase:', error)
+      );
+
+    fetchReservedSeats(tripData.id);
+
+    return () => unsubscribe();
+  }, [tripData.id]);
+
   // Génération des sièges
   useEffect(() => {
     generateSeats();
-  }, [reservedSeats, placesClassiqueTotal, placesVIPTotal]);
-
-  // Calcul du prix
-  useEffect(() => {
-    const pricePerSeat = selectedSeatType === 'Classique' ? prixClassique : prixVip;
-    const calculatedPrice = pricePerSeat * selectedSeats.length;
-    setCurrentPrice(isNaN(calculatedPrice) ? 0 : calculatedPrice);
-  }, [selectedSeatType, selectedSeats, prixClassique, prixVip]);
+  }, [reservedSeats, tripData.placesClassiqueTotal, tripData.placesVIPTotal]);
 
   const generateSeats = () => {
-    // Sièges classiques (4 sièges par rangée)
-    const classicSeats = Array.from({ length: placesClassiqueTotal }, (_, i) => ({
+    // Sièges classiques
+    const classicSeats = Array.from({ length: tripData.placesClassiqueTotal }, (_, i) => ({
       id: i + 1,
       number: i + 1,
       label: `${i + 1}`,
@@ -203,8 +144,8 @@ const SeatSelectionScreen = () => {
     }));
     setClassiqueSeats(classicSeats);
 
-    // Sièges VIP (2 sièges par rangée)
-    const vSeats = Array.from({ length: placesVIPTotal }, (_, i) => ({
+    // Sièges VIP
+    const vSeats = Array.from({ length: tripData.placesVIPTotal }, (_, i) => ({
       id: i + 1,
       number: i + 1,
       label: `V${i + 1}`,
@@ -220,7 +161,7 @@ const SeatSelectionScreen = () => {
 
   const selectSeatType = (type) => {
     setSelectedSeatType(type);
-    setSelectedSeats([]); // Réinitialise les sièges sélectionnés
+    setSelectedSeats([]);
     setDropdownVisible(false);
   };
 
@@ -234,47 +175,42 @@ const SeatSelectionScreen = () => {
       const isAlreadySelected = prev.some(s => s.number === seat.number);
       
       if (isAlreadySelected) {
-        // Désélectionner le siège
         return prev.filter(s => s.number !== seat.number);
       } else {
-        // Vérifier le nombre maximum de sièges sélectionnables (5 maximum)
         if (prev.length >= 5) {
           Alert.alert('Limite atteinte', 'Vous ne pouvez sélectionner que 5 sièges maximum.');
           return prev;
         }
-        // Sélectionner le siège
         return [...prev, seat];
       }
     });
   };
 
-  const createTemporaryReservation = async (seatsToReserve) => {
+  const createTemporaryReservation = async () => {
     const reservationId = `TEMP_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     try {
       const reservationData = {
         id: reservationId,
-        voyageId: voyage.id,
-        agencyId: voyage.agencyId,
-        userId: 'current_user_id',
+        voyageId: tripData.id,
+        agencyId: tripData.agencyId,
         seatType: selectedSeatType,
-        typePlace: selectedSeatType,
-        seats: seatsToReserve.map(seat => ({
+        seats: selectedSeats.map(seat => ({
           number: seat.number,
           label: seat.label
         })),
-        numberOfSeats: seatsToReserve.length,
+        numberOfSeats: selectedSeats.length,
         totalPrice: currentPrice,
         prixTotal: currentPrice,
-        pricePerSeat: selectedSeatType === 'Classique' ? prixClassique : prixVip,
-        departure: voyage.departure,
-        destination: voyage.destination,
-        villeDepart: voyage.departure,
-        villeArrivee: voyage.destination,
-        departureDate: voyage.dateDepart,
-        dateVoyage: voyage.dateDepart,
-        departureTime: voyage.heureDepart,
-        heureDepart: voyage.heureDepart,
+        pricePerSeat: selectedSeatType === 'Classique' ? tripData.prixClassique : tripData.prixVIP,
+        departure: tripData.origin,
+        destination: tripData.destination,
+        villeDepart: tripData.origin,
+        villeArrivee: tripData.destination,
+        departureDate: tripData.departureDate,
+        dateVoyage: tripData.departureDate,
+        departureTime: tripData.departureTime,
+        heureDepart: tripData.departureTime,
         reservationDate: firestore.FieldValue.serverTimestamp(),
         dateReservation: new Date().toISOString().split('T')[0],
         heureReservation: new Date().toTimeString().split(' ')[0],
@@ -282,28 +218,28 @@ const SeatSelectionScreen = () => {
         statutPaiement: 'en_attente',
         paymentStatus: 'en_attente',
         createdAt: firestore.FieldValue.serverTimestamp(),
-        nomAgence: agencyDetails.name,
-        logoAgence: agencyDetails.logoUrl,
+        nomAgence: tripData.agencyName,
+        logoAgence: tripData.logoUrl,
       };
 
       await firestore().collection('reservations').doc(reservationId).set(reservationData);
-
-      console.log('Réservation temporaire créée:', reservationId);
       return { success: true, reservationId, reservationData };
-
     } catch (error) {
       console.error('Erreur lors de la création de la réservation temporaire:', error);
       throw error;
     }
   };
 
-  const handleReservation = async () => {
+  const handleContinue = async () => {
     if (selectedSeats.length === 0) {
       Alert.alert('Erreur', 'Veuillez sélectionner au moins un siège');
       return;
     }
 
-    const availableSeats = selectedSeatType === 'Classique' ? placesClassiqueDisponibles : placesVIPDisponibles;
+    const availableSeats = selectedSeatType === 'Classique' 
+      ? tripData.placesClassiqueDisponibles 
+      : tripData.placesVIPDisponibles;
+    
     if (selectedSeats.length > availableSeats) {
       Alert.alert(
         'Places insuffisantes', 
@@ -312,53 +248,22 @@ const SeatSelectionScreen = () => {
       return;
     }
 
-    const currentReservedSeats = selectedSeatType === 'Classique' ? reservedSeats.classique : reservedSeats.vip;
-    const unavailableSeats = selectedSeats.filter(seat => currentReservedSeats.includes(seat.number));
-
-    if (unavailableSeats.length > 0) {
-      Alert.alert(
-        'Sièges indisponibles', 
-        'Certains sièges sélectionnés ne sont plus disponibles. Veuillez en choisir d\'autres.',
-        [{ text: 'OK', onPress: () => setSelectedSeats([]) }]
-      );
-      return;
-    }
-
-    Alert.alert(
-      'Confirmer la sélection',
-      `Procéder avec ${selectedSeats.length} place(s) ${selectedSeatType} pour ${formatPrice(currentPrice)} ?`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Continuer', onPress: () => processReservation() }
-      ]
-    );
-  };
-
-  const processReservation = async () => {
     setIsLoading(true);
 
     try {
-      const reservationResult = await createTemporaryReservation(selectedSeats);
-
+      const reservationResult = await createTemporaryReservation();
+      
       if (reservationResult.success) {
-        const reservationData = reservationResult.reservationData;
-        
-        setSelectedSeats([]);
-
-     navigation.navigate('Payment', {
-  reservationData: reservationData,
-  reservationId: reservationResult.reservationId
-});
+        navigation.navigate(ROUTES.PAYMENT, {
+          reservationData: reservationResult.reservationData,
+          reservationId: reservationResult.reservationId
+        });
       }
     } catch (error) {
-      console.error('Erreur lors du processus de réservation:', error);
       Alert.alert(
         'Erreur', 
-        'Une erreur est survenue lors de la création de la réservation. Veuillez réessayer.',
-        [
-          { text: 'OK' },
-          { text: 'Réessayer', onPress: () => processReservation() }
-        ]
+        'Une erreur est survenue lors de la création de la réservation.',
+        [{ text: 'OK' }]
       );
     } finally {
       setIsLoading(false);
@@ -366,8 +271,6 @@ const SeatSelectionScreen = () => {
   };
 
   const organizeSeatsIntoRows = (seats) => {
-    if (!Array.isArray(seats)) return [];
-    
     return seats.reduce((rows, seat) => {
       if (!rows[seat.row]) rows[seat.row] = [];
       rows[seat.row].push(seat);
@@ -378,8 +281,6 @@ const SeatSelectionScreen = () => {
   const renderSeats = () => {
     const seats = selectedSeatType === 'Classique' ? classiqueSeats : vipSeats;
     const rows = organizeSeatsIntoRows(seats);
-
-    if (!Array.isArray(rows)) return null;
 
     return (
       <View style={styles.seatLayout}>
@@ -438,15 +339,14 @@ const SeatSelectionScreen = () => {
   };
 
   const refreshData = async () => {
-    if (!voyage.id || voyage.id === 'default_trip_id') {
+    if (!tripData.id) {
       Alert.alert('Erreur', 'ID de voyage invalide');
       return;
     }
 
     setIsLoading(true);
     try {
-      await fetchReservedSeats(voyage.id);
-      Alert.alert('Succès', 'Données mises à jour');
+      await fetchReservedSeats(tripData.id);
     } catch (error) {
       Alert.alert('Erreur', 'Impossible de mettre à jour les données');
     } finally {
@@ -456,7 +356,7 @@ const SeatSelectionScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* En-tête */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
           <Icon name="arrow-left" size={22} color="#000" />
@@ -467,7 +367,7 @@ const SeatSelectionScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Indicateur de chargement global */}
+      {/* Loading Overlay */}
       {isLoading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#007bff" />
@@ -475,38 +375,38 @@ const SeatSelectionScreen = () => {
         </View>
       )}
 
-      {/* Carte du trajet */}
+      {/* Journey Card */}
       <View style={styles.journeyCard}>
-        <Text style={styles.cityName}>{voyage.departure}</Text>
+        <Text style={styles.cityName}>{tripData.origin}</Text>
         <View style={styles.directionIconContainer}>
           <MaterialCommunityIcons name="arrow-right-thick" size={24} color="white" />
         </View>
-        <Text style={styles.cityName}>{voyage.destination}</Text>
+        <Text style={styles.cityName}>{tripData.destination}</Text>
       </View>
 
-      {/* Informations supplémentaires sur le voyage */}
+      {/* Trip Info */}
       <View style={styles.tripInfoCard}>
         <Text style={styles.tripInfoText}>
-          Départ: {voyage.heureDepart} - {formatDate(voyage.dateDepart)}
+          Départ: {tripData.departureTime} - {formatDate(tripData.departureDate)}
         </Text>
       </View>
 
-      {/* Informations sur l'agence */}
+      {/* Agency Info */}
       <View style={styles.agencyInfoContainer}>
         <Image 
-          source={{ uri: agencyDetails.logoUrl }} 
+          source={{ uri: tripData.logoUrl }} 
           style={styles.agencyLogo}
           defaultSource={{ uri: 'https://via.placeholder.com/50' }}
         />
         <View style={styles.agencyInfo}>
-          <Text style={styles.agencyName}>{agencyDetails.name}</Text>
+          <Text style={styles.agencyName}>{tripData.agencyName}</Text>
           <Text style={styles.availableSeats}>
-            Places disponibles: Classique ({placesClassiqueDisponibles}), VIP ({placesVIPDisponibles})
+            Places disponibles: Classique ({tripData.placesClassiqueDisponibles}), VIP ({tripData.placesVIPDisponibles})
           </Text>
         </View>
       </View>
 
-      {/* Sélection du type de siège */}
+      {/* Seat Type Selection */}
       <View style={styles.seatTypeContainer}>
         <TouchableOpacity onPress={toggleSeatTypeDropdown} style={styles.seatTypeSelector}>
           <Text style={styles.seatTypeText}>{selectedSeatType}</Text>
@@ -520,35 +420,35 @@ const SeatSelectionScreen = () => {
               onPress={() => selectSeatType('Classique')}
             >
               <Text style={styles.dropdownItemText}>Classique</Text>
-              <Text style={styles.priceText}>{formatPrice(prixClassique)}</Text>
+              <Text style={styles.priceText}>{formatPrice(tripData.prixClassique)}</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.dropdownItem, selectedSeatType === 'VIP' && styles.selectedDropdownItem]} 
               onPress={() => selectSeatType('VIP')}
             >
               <Text style={styles.dropdownItemText}>VIP</Text>
-              <Text style={styles.priceText}>{formatPrice(prixVip)}</Text>
+              <Text style={styles.priceText}>{formatPrice(tripData.prixVIP)}</Text>
             </TouchableOpacity>
           </View>
         )}
       </View>
 
-      {/* Affichage du prix */}
+      {/* Price Display */}
       <View style={styles.priceDisplay}>
         <Text style={styles.priceLabel}>Sièges sélectionnés: {selectedSeats.length}/5</Text>
         <Text style={styles.priceValue}>{formatPrice(currentPrice)}</Text>
       </View>
 
-      {/* Message d'information */}
+      {/* Info Message */}
       <View style={styles.infoContainer}>
         <Text style={styles.infoText}>
           Prix par siège: {selectedSeatType === 'Classique' 
-            ? formatPrice(prixClassique) 
-            : formatPrice(prixVip)} • Maximum 5 places
+            ? formatPrice(tripData.prixClassique) 
+            : formatPrice(tripData.prixVIP)} • Maximum 5 places
         </Text>
       </View>
 
-      {/* Sélection des sièges */}
+      {/* Seat Selection */}
       <Text style={styles.sectionTitle}>Choisir les sièges</Text>
       <ScrollView style={styles.seatSelectionContainer}>
         <View style={styles.legendContainer}>
@@ -569,27 +469,28 @@ const SeatSelectionScreen = () => {
         {renderSeats()}
       </ScrollView>
 
-      {/* Bouton de réservation */}
-      <TouchableOpacity 
-        style={[
-          styles.reserveButton, 
-          (selectedSeats.length === 0 || isLoading) && styles.disabledButton
-        ]}
-        onPress={handleReservation}
-        disabled={selectedSeats.length === 0 || isLoading}
-      >
-        <Text style={styles.reserveButtonText}>
-          {isLoading 
-            ? 'Traitement en cours...' 
-            : `Continuer avec ${selectedSeats.length > 1 ? 'ces places' : 'cette place'} (${formatPrice(currentPrice)})`
-          }
-        </Text>
-      </TouchableOpacity>
+      {/* Continue Button */}
+      <View style={styles.footer}>
+        <TouchableOpacity 
+          style={[
+            styles.continueButton, 
+            (selectedSeats.length === 0 || isLoading) && styles.disabledButton
+          ]}
+          onPress={handleContinue}
+          disabled={selectedSeats.length === 0 || isLoading}
+        >
+          <Text style={styles.continueButtonText}>
+            {isLoading 
+              ? 'Traitement en cours...' 
+              : `Continuer avec ${selectedSeats.length > 1 ? 'ces places' : 'cette place'} (${formatPrice(currentPrice)})`
+            }
+          </Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 };
 
-// Styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -818,20 +719,25 @@ const styles = StyleSheet.create({
   selectedSeatLabel: {
     color: '#000',
   },
-  reserveButton: {
-    backgroundColor: '#007bff',
+  footer: {
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    backgroundColor: '#fff',
+  },
+  continueButton: {
+    backgroundColor: '#3D56F0',
     padding: 15,
-    margin: 20,
-    borderRadius: 10,
+    borderRadius: 8,
     alignItems: 'center',
   },
-  disabledButton: {
-    backgroundColor: '#aaa',
-  },
-  reserveButtonText: {
+  continueButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  disabledButton: {
+    backgroundColor: '#aaa',
   },
   infoContainer: {
     backgroundColor: '#f0f8ff',
