@@ -1,731 +1,367 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  FlatList, 
-  StyleSheet, 
-  TouchableOpacity, 
-  Image, 
-  ActivityIndicator,
-  Alert,
-  RefreshControl,
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  TouchableOpacity,
+  ScrollView,
   SafeAreaView,
   StatusBar,
-  Share,
-  TextInput,
-  Dimensions
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { format, parseISO, isAfter, isBefore, isToday, isThisWeek, isThisMonth } from 'date-fns';
-import { fr } from 'date-fns/locale';
-import { auth, db } from '../config/firebase';
+import { useNavigation, NavigationProp } from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import Icon from 'react-native-vector-icons/Feather';
+import DateTimePickerModal from 'react-native-modal-datetime-picker';
+import { Dropdown } from 'react-native-element-dropdown';
+import moment from 'moment';
+import { ROUTES } from '../constants/routes';
+import 'moment/locale/fr';
 
-const { width } = Dimensions.get('window');
-
-// Composant EmptyState amélioré
-const EmptyState = ({ icon, title, message, actionText, onActionPress }) => {
-  return (
-    <View style={emptyStateStyles.container}>
-      <View style={emptyStateStyles.iconContainer}>
-        <Icon name={icon} size={80} color="#E3F2FD" />
-      </View>
-      <Text style={emptyStateStyles.title}>{title}</Text>
-      <Text style={emptyStateStyles.message}>{message}</Text>
-      <TouchableOpacity 
-        style={emptyStateStyles.actionButton} 
-        onPress={onActionPress}
-      >
-        <Text style={emptyStateStyles.actionText}>{actionText}</Text>
-        <Icon name="arrow-right" size={16} color="#FFFFFF" style={{ marginLeft: 8 }} />
-      </TouchableOpacity>
-    </View>
-  );
-};
-
-// Styles pour le composant EmptyState
-const emptyStateStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-    backgroundColor: '#FAFBFF',
-  },
-  iconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#F3F7FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-    shadowColor: '#4169E1',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  message: {
-    fontSize: 16,
-    color: '#64748B',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 32,
-    paddingHorizontal: 16,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#4169E1',
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 16,
-    shadowColor: '#4169E1',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  actionText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-});
-
-// Interface TypeScript pour les réservations
-interface Reservation {
-  id: string;
-  userId: string;
-  voyageId: string;
-  agencyId: string;
-  ticketId: string;
-  typePlace: 'VIP' | 'Classique';
-  prixTotal: number;
-  statut: 'confirmé' | 'en_attente' | 'annulé';
-  dateReservation: string;
-  heureReservation: string;
-  createdAt: any;
-  paiementId: string;
-  // Données jointes
-  numeroBillet?: string;
-  dateVoyage?: string;
-  heureDepart?: string;
-  villeDepart?: string;
-  villeArrivee?: string;
-  statutPaiement?: 'complété' | 'en_attente';
-  nomAgence?: string;
-  logoAgence?: string;
-  // Champs supplémentaires basés sur vos données
-  departure?: string;
-  destination?: string;
-  departureDate?: string;
-  departureTime?: string;
-  seatType?: string;
-  paymentStatus?: string;
-  numberOfSeats?: number;
-  pricePerSeat?: number;
-  totalPrice?: number;
-  seats?: Array<any>;
+interface CityOption {
+  label: string;
+  value: string;
 }
 
-const HistoriqueReservation: React.FC = () => {
-  const navigation = useNavigation();
-  const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [filteredReservations, setFilteredReservations] = useState<Reservation[]>([]);
+type RootStackParamList = {
+  SEARCH_RESULTS: {
+    departure: string;
+    destination: string;
+    date?: string;
+    time?: string;
+  };
+  AGENCY_SELECT: undefined;
+  LOGIN: undefined;
+  PROFILE: undefined;
+  MainTabs: { screen?: string };
+  Notification: undefined;
+  // ...ajoutez ici vos autres routes
+};
+
+const HomeScreen = () => {
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const [departureCity, setDepartureCity] = useState<string | null>(null);
+  const [destinationCity, setDestinationCity] = useState<string | null>(null);
+  const [departureDate, setDepartureDate] = useState<Date | null>(null);
+  const [departureTime, setDepartureTime] = useState<Date | null>(null);
+  const [isDatePickerVisible, setDatePickerVisible] = useState(false);
+  const [isTimePickerVisible, setTimePickerVisible] = useState(false);
+  const [departureCities, setDepartureCities] = useState<CityOption[]>([]);
+  const [destinationCities, setDestinationCities] = useState<CityOption[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'upcoming' | 'past' | 'confirmed' | 'cancelled'>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [unsubscribe, setUnsubscribe] = useState<(() => void) | null>(null);
+  const [currentUser, setCurrentUser] = useState<FirebaseAuthTypes.User | null>(null);
+  const [formData, setFormData] = useState({
+    departure: '',
+    destination: '',
+    date: new Date(),
+    time: new Date(),
+  });
 
   useEffect(() => {
-    setupRealtimeListener();
+    fetchVoyages();
     
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    filterReservations();
-  }, [reservations, activeFilter, searchQuery]);
-
-  useEffect(() => {
-    const navUnsubscribe = navigation.addListener('focus', () => {
-      if (!unsubscribe) {
-        setupRealtimeListener();
+    // Vérifier l'état d'authentification
+    const unsubscribe = auth().onAuthStateChanged((user) => {
+      setCurrentUser(user);
+      if (!user) {
+        console.log('[HomeScreen] No authenticated user found');
+      } else {
+        console.log('[HomeScreen] Current user:', user.uid);
       }
     });
-    
-    return navUnsubscribe;
-  }, [navigation]);
 
-  const getCurrentUserId = async () => {
-    try {
-      // Essayer d'abord AsyncStorage
-      const storedUserId = await AsyncStorage.getItem('userId');
-      if (storedUserId) {
-        console.log('User ID trouvé dans AsyncStorage:', storedUserId);
-        return storedUserId;
-      }
+    return () => unsubscribe();
+  }, []);
 
-      // Ensuite essayer authToken
-      const authToken = await AsyncStorage.getItem('authToken');
-      if (authToken) {
-        console.log('Auth token trouvé:', authToken);
-        return authToken;
-      }
-      
-      // Enfin essayer Firebase auth
-      const currentUser = auth.currentUser;
-      if (currentUser) {
-        console.log('User ID trouvé dans Firebase auth:', currentUser.uid);
-        return currentUser.uid;
-      }
-
-      // Essayer de récupérer les données utilisateur stockées
-      const userData = await AsyncStorage.getItem('userData');
-      if (userData) {
-        const parsedUserData = JSON.parse(userData);
-        if (parsedUserData.id || parsedUserData.uid) {
-          console.log('User ID trouvé dans userData:', parsedUserData.id || parsedUserData.uid);
-          return parsedUserData.id || parsedUserData.uid;
-        }
-      }
-      
-      console.log('Aucun utilisateur connecté trouvé');
-      return null;
-    } catch (error) {
-      console.error('Erreur lors de la récupération de l\'ID utilisateur:', error);
-      return null;
-    }
-  };
-
-  const setupRealtimeListener = async () => {
+  const fetchVoyages = async () => {
     try {
       setLoading(true);
+      const voyagesSnapshot = await firestore().collection('voyages').get();
       
-      const userId = await getCurrentUserId();
-      console.log('User ID récupéré:', userId);
-      
-      if (!userId) {
-        console.log('Aucun utilisateur connecté');
-        setReservations([]);
-        setLoading(false);
-        return;
-      }
+      const departureSet = new Set<string>();
+      const destinationSet = new Set<string>();
 
-      // Essayer d'abord avec userId
-      let reservationsRef = firestore()
-        .collection('reservations')
-        .where('userId', '==', userId);
+      voyagesSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.departure) departureSet.add(data.departure);
+        if (data.destination) destinationSet.add(data.destination);
+      });
 
-      const unsubscribeListener = reservationsRef.onSnapshot(
-        (snapshot) => {
-          console.log('Nombre de documents trouvés avec userId:', snapshot.docs.length);
-          
-          if (snapshot.docs.length === 0) {
-            // Si aucun résultat avec userId, essayer avec d'autres champs possibles
-            console.log('Aucune réservation trouvée avec userId, essai avec d\'autres champs...');
-            
-            // Vous pouvez ici essayer d'autres requêtes si nécessaire
-            // Par exemple si vous stockez l'ID utilisateur dans un autre champ
-          }
+      const departures = Array.from(departureSet).sort().map(city => ({ label: city, value: city }));
+      const destinations = Array.from(destinationSet).sort().map(city => ({ label: city, value: city }));
 
-          const reservationsData = snapshot.docs.map(doc => {
-            const data = doc.data();
-            console.log('Données de réservation trouvées:', data);
-            
-            return {
-              id: doc.id,
-              ...data,
-              // Normaliser les données pour assurer la compatibilité
-              villeDepart: data.villeDepart || data.departure,
-              villeArrivee: data.villeArrivee || data.destination,
-              dateVoyage: data.dateVoyage || data.departureDate,
-              heureDepart: data.heureDepart || data.departureTime,
-              typePlace: data.typePlace || data.seatType,
-              statut: data.statut || (data.paymentStatus === 'en_attente' ? 'en_attente' : 'confirmé'),
-              statutPaiement: data.statutPaiement || data.paymentStatus,
-              prixTotal: data.prixTotal || data.totalPrice || data.pricePerSeat,
-              dateReservation: data.dateReservation || data.createdAt?.toDate?.() || data.reservationDate?.toDate?.(),
-            };
-          });
-          
-          console.log('Réservations finales:', reservationsData);
-          setReservations(reservationsData);
-          setLoading(false);
-        },
-        (error) => {
-          console.error('Erreur lors de la récupération des réservations:', error);
-          
-          // En cas d'erreur, essayer une requête alternative
-          console.log('Tentative de récupération de toutes les réservations pour debug...');
-          
-          firestore()
-            .collection('reservations')
-            .limit(10)
-            .get()
-            .then((snapshot) => {
-              console.log('Toutes les réservations (debug):', snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-              })));
-            })
-            .catch((debugError) => {
-              console.error('Erreur debug:', debugError);
-            });
-          
-          setLoading(false);
-        }
+      setDepartureCities(departures);
+      setDestinationCities(destinations);
+      setLoading(false);
+    } catch (error: any) {
+      console.error('Erreur lors de la récupération des villes:', error);
+      Alert.alert(
+        'Erreur',
+        'Impossible de charger les données des villes. Veuillez réessayer.'
       );
-
-      setUnsubscribe(() => unsubscribeListener);
-    } catch (error) {
-      console.error('Erreur lors de la configuration de l\'écoute:', error);
       setLoading(false);
     }
   };
 
-  const filterReservations = () => {
-    let filtered = [...reservations];
-    const currentDate = new Date();
-
-    if (activeFilter !== 'all') {
-      filtered = filtered.filter(reservation => {
-        switch (activeFilter) {
-          case 'upcoming':
-            if (!reservation.dateVoyage) return false;
-            try {
-              const voyageDate = parseISO(`${reservation.dateVoyage}T${reservation.heureDepart?.replace('h', ':') || '00:00'}`);
-              return isAfter(voyageDate, currentDate) && reservation.statut !== 'annulé';
-            } catch {
-              return false;
-            }
-          case 'past':
-            if (!reservation.dateVoyage) return true;
-            try {
-              const voyageDate = parseISO(`${reservation.dateVoyage}T${reservation.heureDepart?.replace('h', ':') || '00:00'}`);
-              return !isAfter(voyageDate, currentDate) || reservation.statut === 'annulé';
-            } catch {
-              return true;
-            }
-          case 'confirmed':
-            return reservation.statut === 'confirmé';
-          case 'cancelled':
-            return reservation.statut === 'annulé';
-          default:
-            return true;
-        }
-      });
-    }
-
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      filtered = filtered.filter(reservation => 
-        reservation.nomAgence?.toLowerCase().includes(query) ||
-        reservation.villeDepart?.toLowerCase().includes(query) ||
-        reservation.villeArrivee?.toLowerCase().includes(query) ||
-        reservation.numeroBillet?.toLowerCase().includes(query) ||
-        reservation.id.toLowerCase().includes(query)
-      );
-    }
-
-    setFilteredReservations(filtered);
+  const handleDateConfirm = (date: Date) => {
+    setDepartureDate(date);
+    setDatePickerVisible(false);
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    // Relancer la configuration du listener pour rafraîchir les données
-    if (unsubscribe) {
-      unsubscribe();
-      setUnsubscribe(null);
+  const handleTimeConfirm = (time: Date) => {
+    setDepartureTime(time);
+    setTimePickerVisible(false);
+  };
+
+  const resetSearchForm = () => {
+    setDepartureCity(null);
+    setDestinationCity(null);
+    setDepartureDate(null);
+    setDepartureTime(null);
+    setFormData({
+      departure: '',
+      destination: '', 
+      date: new Date(),
+      time: new Date(),
+    });
+  };
+
+  const handleSearch = () => {
+    // Vérifiez que les champs requis sont remplis
+    if (!departureCity || !destinationCity) {
+      Alert.alert('Erreur', 'Veuillez sélectionner une ville de départ et d\'arrivée');
+      return;
     }
-    await setupRealtimeListener();
-    setTimeout(() => setRefreshing(false), 1000);
+
+    console.log('Home.tsx - departureCity avant navigation:', departureCity);
+    // Navigation vers l'écran des résultats avec les paramètres
+    navigation.navigate(ROUTES.SEARCH_RESULTS, {
+      departure: departureCity,
+      destination: destinationCity,
+      date: departureDate ? moment(departureDate).format('YYYY-MM-DD') : undefined,
+      time: departureTime ? moment(departureTime).format('HH:mm') : undefined
+    });
+
+    // Réinitialiser le formulaire après la navigation
+    resetSearchForm();
   };
 
-  const navigateToReservationDetails = (reservationId: string) => {
-    navigation.navigate('DetailReservation', { reservationId });
+  const navigateToAgencySelection = () => {
+    navigation.navigate(ROUTES.AGENCY_SELECT);
   };
 
-  const shareTicket = async (reservation: Reservation) => {
-    try {
-      await Share.share({
-        message: `Mon billet de voyage avec ${reservation.nomAgence}\n
-Date: ${reservation.dateVoyage ? format(parseISO(reservation.dateVoyage), 'dd/MM/yyyy', { locale: fr }) : 'Date non définie'}\n
-Heure: ${reservation.heureDepart || 'Heure non définie'}\n
-Trajet: ${reservation.villeDepart || 'Départ'} - ${reservation.villeArrivee || 'Arrivée'}\n
-Type: ${reservation.typePlace}\n
-Référence: ${reservation.numeroBillet || reservation.id}`,
-        title: `Billet de voyage ${reservation.nomAgence}`,
-      });
-    } catch (error) {
-      Alert.alert('Erreur', 'Impossible de partager le billet');
-    }
-  };
-
-  const cancelReservation = async (reservationId: string) => {
-    Alert.alert(
-      'Annuler la réservation',
-      'Êtes-vous sûr de vouloir annuler cette réservation ?',
-      [
-        { text: 'Non', style: 'cancel' },
-        { 
-          text: 'Oui', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await firestore()
-                .collection('reservations')
-                .doc(reservationId)
-                .update({
-                  statut: 'annulé',
-                  updatedAt: firestore.FieldValue.serverTimestamp()
-                });
-              
-              Alert.alert('Succès', 'Votre réservation a été annulée');
-            } catch (error) {
-              console.error('Erreur lors de l\'annulation:', error);
-              Alert.alert('Erreur', 'Impossible d\'annuler la réservation. Veuillez réessayer.');
-            }
+  const navigateToProfile = () => {
+    if (!currentUser) {
+      Alert.alert(
+        'Non connecté',
+        'Vous devez être connecté pour accéder au profil.',
+        [
+          {
+            text: 'Se connecter',
+            onPress: () => navigation.navigate(ROUTES.LOGIN)
+          },
+          {
+            text: 'Annuler',
+            style: 'cancel'
           }
-        }
-      ]
-    );
-  };
-
-  const getStatusColor = (statut: string) => {
-    switch (statut) {
-      case 'confirmé': return '#10B981';
-      case 'annulé': return '#EF4444';
-      case 'en_attente': return '#F59E0B';
-      default: return '#6B7280';
+        ]
+      );
+    } else {
+      navigation.navigate('MainTabs', { screen: ROUTES.PROFILE_TAB });
     }
   };
-
-  const getStatusBgColor = (statut: string) => {
-    switch (statut) {
-      case 'confirmé': return '#ECFDF5';
-      case 'annulé': return '#FEF2F2';
-      case 'en_attente': return '#FFFBEB';
-      default: return '#F9FAFB';
-    }
-  };
-
-  const getDateLabel = (reservation: Reservation) => {
-    if (!reservation.dateVoyage) return '';
-    
-    try {
-      const voyageDate = parseISO(reservation.dateVoyage);
-      if (isToday(voyageDate)) return 'Aujourd\'hui';
-      if (isThisWeek(voyageDate)) return 'Cette semaine';
-      if (isThisMonth(voyageDate)) return 'Ce mois';
-      return format(voyageDate, 'MMM yyyy', { locale: fr });
-    } catch {
-      return '';
-    }
-  };
-
-  const renderFilterButton = (filter: string, label: string, count?: number) => {
-    const isActive = activeFilter === filter;
-    return (
-      <TouchableOpacity
-        style={[styles.filterButton, isActive && styles.activeFilterButton]}
-        onPress={() => setActiveFilter(filter as any)}
-      >
-        <Text style={[styles.filterText, isActive && styles.activeFilterText]}>
-          {label}
-        </Text>
-        {count !== undefined && (
-          <View style={[styles.countBadge, isActive && styles.activeCountBadge]}>
-            <Text style={[styles.countText, isActive && styles.activeCountText]}>
-              {count}
-            </Text>
-          </View>
-        )}
-      </TouchableOpacity>
-    );
-  };
-
-  const renderReservationItem = ({ item, index }: { item: Reservation, index: number }) => {
-    const canCancel = item.statut !== 'annulé' && 
-                      item.dateVoyage && 
-                      isAfter(parseISO(item.dateVoyage), new Date());
-    
-    const formattedDate = item.dateVoyage 
-      ? format(parseISO(item.dateVoyage), 'dd MMM yyyy', { locale: fr }) 
-      : 'Date non définie';
-    
-    const dateLabel = getDateLabel(item);
-    
-    return (
-      <TouchableOpacity
-        style={[styles.reservationCard, { marginBottom: index === filteredReservations.length - 1 ? 100 : 16 }]}
-        onPress={() => navigateToReservationDetails(item.id)}
-        activeOpacity={0.8}
-      >
-        <View style={styles.cardGradient}>
-          <View style={styles.cardHeader}>
-            <View style={styles.agencyContainer}>
-              <View style={styles.logoContainer}>
-                {item.logoAgence && !item.logoAgence.startsWith('assets/') ? (
-                  <Image
-                    source={{ uri: item.logoAgence }}
-                    style={styles.agencyLogo}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.agencyLogoPlaceholder}>
-                    <Text style={styles.agencyLogoInitial}>
-                      {item.nomAgence?.charAt(0) || 'A'}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              <View style={styles.agencyInfo}>
-                <Text style={styles.agencyName} numberOfLines={1}>
-                  {item.nomAgence || 'Agence inconnue'}
-                </Text>
-                <View style={styles.refContainer}>
-                  <Icon name="bookmark-outline" size={12} color="#64748B" />
-                  <Text style={styles.reservationId}>
-                    {item.numeroBillet || item.id.slice(-8)}
-                  </Text>
-                </View>
-              </View>
-            </View>
-            <View style={[
-              styles.statusBadge,
-              { backgroundColor: getStatusBgColor(item.statut) }
-            ]}>
-              <View style={[styles.statusDot, { backgroundColor: getStatusColor(item.statut) }]} />
-              <Text style={[styles.statusText, { color: getStatusColor(item.statut) }]}>
-                {item.statut}
-              </Text>
-            </View>
-          </View>
-          
-          <View style={styles.routeSection}>
-            <View style={styles.routeContainer}>
-              <View style={styles.cityContainer}>
-                <Text style={styles.cityCode}>
-                  {(item.villeDepart || 'DEP').substring(0, 3).toUpperCase()}
-                </Text>
-                <Text style={styles.cityName} numberOfLines={1}>
-                  {item.villeDepart || 'Départ'}
-                </Text>
-              </View>
-              
-              <View style={styles.routeMiddle}>
-                <View style={styles.routeLine} />
-                <View style={styles.arrowContainer}>
-                  <Icon name="arrow-right" size={20} color="#4169E1" />
-                </View>
-                <View style={styles.routeLine} />
-              </View>
-              
-              <View style={styles.cityContainer}>
-                <Text style={styles.cityCode}>
-                  {(item.villeArrivee || 'ARR').substring(0, 3).toUpperCase()}
-                </Text>
-                <Text style={styles.cityName} numberOfLines={1}>
-                  {item.villeArrivee || 'Arrivée'}
-                </Text>
-              </View>
-            </View>
-          </View>
-          
-          <View style={styles.detailsSection}>
-            <View style={styles.detailRow}>
-              <View style={styles.detailItem}>
-                <Icon name="calendar-outline" size={16} color="#64748B" />
-                <Text style={styles.detailText}>{formattedDate}</Text>
-              </View>
-              <View style={styles.detailItem}>
-                <Icon name="clock-outline" size={16} color="#64748B" />
-                <Text style={styles.detailText}>{item.heureDepart || 'Non définie'}</Text>
-              </View>
-            </View>
-            
-            <View style={styles.detailRow}>
-              <View style={styles.detailItem}>
-                <Icon name="seat-passenger" size={16} color="#64748B" />
-                <Text style={styles.detailText}>{item.typePlace}</Text>
-              </View>
-              <View style={styles.priceContainer}>
-                <Text style={styles.priceValue}>{item.prixTotal?.toLocaleString() || '0'}</Text>
-                <Text style={styles.priceUnit}>FCFA</Text>
-              </View>
-            </View>
-          </View>
-          
-          <View style={styles.actionsSection}>
-            {canCancel && (
-              <TouchableOpacity
-                style={[styles.actionButton, styles.cancelButton]}
-                onPress={() => cancelReservation(item.id)}
-              >
-                <Icon name="close-circle-outline" size={18} color="#EF4444" />
-                <Text style={styles.cancelButtonText}>Annuler</Text>
-              </TouchableOpacity>
-            )}
-            
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => shareTicket(item)}
-            >
-              <Icon name="share-variant-outline" size={18} color="#4169E1" />
-              <Text style={styles.actionButtonText}>Partager</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.actionButton, styles.primaryButton]}
-              onPress={() => navigateToReservationDetails(item.id)}
-            >
-              <Icon name="eye-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.primaryButtonText}>Détails</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
-  const upcomingCount = reservations.filter(r => {
-    if (!r.dateVoyage) return false;
-    try {
-      const voyageDate = parseISO(`${r.dateVoyage}T${r.heureDepart?.replace('h', ':') || '00:00'}`);
-      return isAfter(voyageDate, new Date()) && r.statut !== 'annulé';
-    } catch {
-      return false;
-    }
-  }).length;
-
-  const pastCount = reservations.filter(r => {
-    if (!r.dateVoyage) return true;
-    try {
-      const voyageDate = parseISO(`${r.dateVoyage}T${r.heureDepart?.replace('h', ':') || '00:00'}`);
-      return !isAfter(voyageDate, new Date()) || r.statut === 'annulé';
-    } catch {
-      return true;
-    }
-  }).length;
-
-  const confirmedCount = reservations.filter(r => r.statut === 'confirmé').length;
-  const cancelledCount = reservations.filter(r => r.statut === 'annulé').length;
-
-  // Fonction pour rediriger vers la homepage
-  const goToHome = () => {
-    navigation.navigate('Home');
-  };
-
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-        <View style={styles.loadingContainer}>
-          <View style={styles.loadingSpinner}>
-            <ActivityIndicator size="large" color="#4169E1" />
-          </View>
-          <Text style={styles.loadingTitle}>Chargement</Text>
-          <Text style={styles.loadingText}>Récupération de vos réservations...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <StatusBar backgroundColor="#4169E1" barStyle="light-content" />
       
+      {/* Header avec gradient */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Icon name="arrow-left" size={24} color="#1A1A1A" />
-        </TouchableOpacity>
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Mes Réservations</Text>
-          <Text style={styles.headerSubtitle}>{reservations.length} voyage(s)</Text>
+          <View>
+            <Text style={styles.welcomeText}>Bienvenue 👋</Text>
+            <Text style={styles.subWelcomeText}>Planifiez your voyage</Text>
+          </View>
+          <TouchableOpacity style={styles.notificationButton} onPress={() => navigation.navigate('Notification')}>
+            <View style={styles.notificationIconContainer}>
+              <Icon name="bell" size={22} color="#4169E1" />
+              <View style={styles.notificationBadge} />
+            </View>
+          </TouchableOpacity>
         </View>
-        <View style={styles.headerRight} />
       </View>
 
-      <View style={styles.searchSection}>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {/* Hero Section avec logo sur image */}
+        <View style={styles.heroSection}>
+          <View style={styles.busImageContainer}>
+            <Image 
+              source={require('../assets/images/busFondBon.jpeg')} 
+              style={styles.busImage} 
+              resizeMode="cover"
+            />
+            <View style={styles.imageOverlay} />
+            
+            {/* Logo GoExpress sur l'image */}
+            <View style={styles.logoOverlay}>
+              <Image 
+                source={require('../assets/images/GoExpress.png')} 
+                style={styles.logoOnImage} 
+                resizeMode="contain"
+              />
+            </View>
+            
+            <View style={styles.heroTextContainer}>
+              <Text style={styles.heroTitle}>Votre voyage commence ici</Text>
+              <Text style={styles.heroSubtitle}>Réservez facilement vos billets de bus</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Formulaire de recherche */}
         <View style={styles.searchContainer}>
-          <Icon name="magnify" size={20} color="#64748B" />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Rechercher par agence, ville..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholderTextColor="#94A3B8"
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Icon name="close-circle" size={20} color="#64748B" />
-            </TouchableOpacity>
+          <View style={styles.searchHeader}>
+            <Icon name="map-pin" size={24} color="#4169E1" />
+            <Text style={styles.searchTitle}>Où souhaitez-vous aller ?</Text>
+          </View>
+          
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#4169E1" />
+              <Text style={styles.loadingText}>Chargement des destinations...</Text>
+            </View>
+          ) : (
+            <View style={styles.formContainer}>
+              {/* Départ */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>
+                  <Icon name="circle" size={12} color="#4169E1" /> Point de départ
+                </Text>
+                <View style={styles.dropdownContainer}>
+                  <Dropdown
+                    style={styles.dropdown}
+                    placeholderStyle={styles.placeholderStyle}
+                    selectedTextStyle={styles.selectedTextStyle}
+                    data={departureCities}
+                    maxHeight={300}
+                    labelField="label"
+                    valueField="value"
+                    placeholder="Choisir un point de départ"
+                    value={departureCity}
+                    onChange={item => {
+                      setDepartureCity(item.value);
+                      setFormData(prev => ({ ...prev, departure: item.value }));
+                    }}
+                    renderLeftIcon={() => (
+                      <Icon name="map-pin" size={18} color="#4169E1" style={styles.dropdownIcon} />
+                    )}
+                  />
+                </View>
+              </View>
+              
+              {/* Destination */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>
+                  <Icon name="navigation" size={12} color="#E74C3C" /> Destination
+                </Text>
+                <View style={styles.dropdownContainer}>
+                  <Dropdown
+                    style={styles.dropdown}
+                    placeholderStyle={styles.placeholderStyle}
+                    selectedTextStyle={styles.selectedTextStyle}
+                    data={destinationCities}
+                    maxHeight={300}
+                    labelField="label"
+                    valueField="value"
+                    placeholder="Choisir une destination"
+                    value={destinationCity}
+                    onChange={item => {
+                      setDestinationCity(item.value);
+                      setFormData(prev => ({ ...prev, destination: item.value }));
+                    }}
+                    renderLeftIcon={() => (
+                      <Icon name="navigation" size={18} color="#E74C3C" style={styles.dropdownIcon} />
+                    )}
+                  />
+                </View>
+              </View>
+              
+              {/* Date et Heure */}
+              <View style={styles.dateTimeRow}>
+                <View style={styles.dateTimeItem}>
+                  <Text style={styles.inputLabel}>
+                    <Icon name="calendar" size={12} color="#27AE60" /> Date
+                  </Text>
+                  <TouchableOpacity 
+                    style={styles.dateTimeButton}
+                    onPress={() => setDatePickerVisible(true)}
+                  >
+                    <Icon name="calendar" size={18} color="#27AE60" />
+                    <Text style={departureDate ? styles.dateTimeSelectedText : styles.dateTimePlaceholder}>
+                      {departureDate ? moment(departureDate).format('DD/MM/YYYY') : 'Date'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.dateTimeItem}>
+                  <Text style={styles.inputLabel}>
+                    <Icon name="clock" size={12} color="#F39C12" /> Heure
+                  </Text>
+                  <TouchableOpacity 
+                    style={styles.dateTimeButton}
+                    onPress={() => setTimePickerVisible(true)}
+                  >
+                    <Icon name="clock" size={18} color="#F39C12" />
+                    <Text style={departureTime ? styles.dateTimeSelectedText : styles.dateTimePlaceholder}>
+                      {departureTime ? moment(departureTime).format('HH:mm') : 'Heure'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              
+              {/* Boutons d'action */}
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
+                  <Icon name="search" size={20} color="white" />
+                  <Text style={styles.searchButtonText}>RECHERCHER</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity style={styles.agencyButton} onPress={navigateToAgencySelection}>
+                  <Icon name="briefcase" size={18} color="#4169E1" />
+                  <Text style={styles.agencyButtonText}>CHOISIR UNE AGENCE</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           )}
         </View>
-      </View>
+      </ScrollView>
 
-      <View style={styles.filtersSection}>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={[
-            { key: 'all', label: 'Toutes', count: reservations.length },
-            { key: 'upcoming', label: 'À venir', count: upcomingCount },
-            { key: 'past', label: 'Passées', count: pastCount },
-            { key: 'confirmed', label: 'Confirmées', count: confirmedCount },
-            { key: 'cancelled', label: 'Annulées', count: cancelledCount },
-          ]}
-          renderItem={({ item }) => renderFilterButton(item.key, item.label, item.count)}
-          keyExtractor={(item) => item.key}
-          contentContainerStyle={styles.filtersContentContainer}
-        />
-      </View>
+      {/* Modals */}
+      <DateTimePickerModal
+        isVisible={isDatePickerVisible}
+        mode="date"
+        onConfirm={handleDateConfirm}
+        onCancel={() => setDatePickerVisible(false)}
+        minimumDate={new Date()}
+        locale="fr-FR"
+        headerTextIOS="Choisir la date de départ"
+        confirmTextIOS="Confirmer"
+        cancelTextIOS="Annuler"
+      />
 
-      {filteredReservations.length === 0 ? (
-        <EmptyState
-          icon={searchQuery.trim() ? "magnify" : activeFilter === 'upcoming' ? "calendar-clock" : activeFilter === 'past' ? "history" : activeFilter === 'cancelled' ? "cancel" : "ticket-outline"}
-          title={searchQuery.trim() ? "Aucun résultat" : activeFilter === 'upcoming' ? "Aucun voyage à venir" : activeFilter === 'past' ? "Aucun voyage passé" : activeFilter === 'cancelled' ? "Aucune réservation annulée" : "Aucune réservation"}
-          message={searchQuery.trim() ? "Aucune réservation ne correspond à votre recherche" : activeFilter === 'upcoming' ? "Vous n'avez aucun voyage prévu pour le moment" : activeFilter === 'past' ? "Vous n'avez aucun voyage terminé" : activeFilter === 'cancelled' ? "Vous n'avez aucune réservation annulée" : "Vous n'avez pas encore effectué de réservation"}
-          actionText={searchQuery.trim() ? "Effacer la recherche" : "Réserver un voyage"}
-          onActionPress={searchQuery.trim() ? () => setSearchQuery('') : goToHome}
-        />
-      ) : (
-        <FlatList
-          data={filteredReservations}
-          renderItem={renderReservationItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContainer}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={['#4169E1']}
-              tintColor="#4169E1"
-            />
-          }
-        />
-      )}
+      <DateTimePickerModal
+        isVisible={isTimePickerVisible}
+        mode="time"
+        onConfirm={handleTimeConfirm}
+        onCancel={() => setTimePickerVisible(false)}
+        locale="fr-FR"
+        headerTextIOS="Choisir l'heure de départ"
+        confirmTextIOS="Confirmer"
+        cancelTextIOS="Annuler"
+      />
     </SafeAreaView>
   );
 };
@@ -733,353 +369,261 @@ Référence: ${reservation.numeroBillet || reservation.id}`,
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFBFF',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FAFBFF',
-  },
-  loadingSpinner: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#F3F7FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  loadingTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 8,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#64748B',
+    backgroundColor: '#f8fafc',
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F8FAFC',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#4169E1',
+    paddingTop: 15,
+    paddingBottom: 30,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    shadowColor: '#4169E1',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
   },
   headerContent: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1A1A1A',
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  headerRight: {
-    width: 40,
-  },
-  searchSection: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  searchInput: {
-    flex: 1,
-    marginLeft: 12,
-    fontSize: 16,
-    color: '#1A1A1A',
-  },
-filtersSection: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  filtersContentContainer: {
-    paddingHorizontal: 20,
-  },
-  filterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    marginRight: 12,
-    borderRadius: 20,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  activeFilterButton: {
-    backgroundColor: '#4169E1',
-    borderColor: '#4169E1',
-  },
-  filterText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  activeFilterText: {
-    color: '#FFFFFF',
-  },
-  countBadge: {
-    marginLeft: 8,
-    backgroundColor: '#E2E8F0',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-    minWidth: 24,
-    alignItems: 'center',
-  },
-  activeCountBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  countText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-  activeCountText: {
-    color: '#FFFFFF',
-  },
-  listContainer: {
-    padding: 20,
-  },
-  reservationCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 8,
-    overflow: 'hidden',
-  },
-  cardGradient: {
-    padding: 20,
-  },
-  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    paddingHorizontal: 25,
+    paddingTop: 10,
   },
-  agencyContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  welcomeText: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: 5,
+    letterSpacing: 0.5,
+  },
+  subWelcomeText: {
+    fontSize: 17,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: '500',
+    letterSpacing: 0.3,
+  },
+  notificationButton: {
+    padding: 5,
+  },
+  notificationIconContainer: {
+    position: 'relative',
+    backgroundColor: '#fff',
+    padding: 14,
+    borderRadius: 20,
+    shadowColor: '#4169E1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E74C3C',
+  },
+  scrollView: {
     flex: 1,
+  },
+  heroSection: {
+    marginTop: -10,
   },
   logoContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 12,
+    alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+  },
+  logo: {
+    width: 150,
+    height: 60,
+  },
+  logoOverlay: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  logoOnImage: {
+    width: 120,
+    height: 50,
+    tintColor: 'rgba(255, 255, 255, 0.95)',
+  },
+  busImageContainer: {
+    position: 'relative',
+    height: 200,
+    marginHorizontal: 20,
+    borderRadius: 20,
+    overflow: 'hidden',
+    marginBottom: 25,
+  },
+  busImage: {
+    width: '100%',
+    height: '100%',
+  },
+  imageOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  heroTextContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+  },
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 5,
+  },
+  heroSubtitle: {
+    fontSize: 16,
+    color: '#E3F2FD',
+    fontWeight: '400',
+  },
+  searchContainer: {
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    borderRadius: 20,
+    padding: 25,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 8,
+    marginBottom: 30,
+  },
+  searchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 25,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  searchTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#2c3e50',
+    marginLeft: 10,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  loadingText: {
+    marginTop: 15,
+    fontSize: 16,
+    color: '#666',
+  },
+  formContainer: {
+    gap: 20,
+  },
+  inputGroup: {
+    marginBottom: 5,
+  },
+  inputLabel: {
+    fontSize: 16,
+    color: '#2c3e50',
+    marginBottom: 10,
+    fontWeight: '600',
+  },
+  dropdownContainer: {
+    borderRadius: 12,
     overflow: 'hidden',
   },
-  agencyLogo: {
-    width: '100%',
-    height: '100%',
-  },
-  agencyLogoPlaceholder: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#4169E1',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  agencyLogoInitial: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  agencyInfo: {
-    flex: 1,
-  },
-  agencyName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 4,
-  },
-  refContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  reservationId: {
-    fontSize: 12,
-    color: '#64748B',
-    marginLeft: 4,
-    fontFamily: 'monospace',
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'capitalize',
-  },
-  routeSection: {
-    marginBottom: 20,
-  },
-  routeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  cityContainer: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  cityCode: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1A1A1A',
-    marginBottom: 4,
-  },
-  cityName: {
-    fontSize: 12,
-    color: '#64748B',
-    textAlign: 'center',
-  },
-  routeMiddle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginHorizontal: 16,
-  },
-  routeLine: {
-    flex: 1,
-    height: 2,
-    backgroundColor: '#E2E8F0',
-  },
-  arrowContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F8FAFC',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginHorizontal: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-
-  detailsSection: {
-    marginBottom: 20,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  detailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  detailText: {
-    fontSize: 14,
-    color: '#64748B',
-    marginLeft: 8,
-  },
-  priceContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'flex-end',
-    flex: 1,
-  },
-  priceValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1A1A1A',
-  },
-  priceUnit: {
-    fontSize: 12,
-    color: '#64748B',
-    marginLeft: 4,
-  },
-  actionsSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+  dropdown: {
+    height: 56,
+    borderColor: '#e1e8ed',
+    borderWidth: 2,
     borderRadius: 12,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    paddingHorizontal: 20,
+    backgroundColor: '#f8fafc',
   },
-  cancelButton: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
+  dropdownIcon: {
+    marginRight: 10,
   },
-  primaryButton: {
+  placeholderStyle: {
+    fontSize: 16,
+    color: '#95a5a6',
+  },
+  selectedTextStyle: {
+    fontSize: 16,
+    color: '#2c3e50',
+    fontWeight: '500',
+  },
+  dateTimeRow: {
+    flexDirection: 'row',
+    gap: 15,
+  },
+  dateTimeItem: {
+    flex: 1,
+  },
+  dateTimeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 56,
+    borderColor: '#e1e8ed',
+    borderWidth: 2,
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    backgroundColor: '#f8fafc',
+    gap: 10,
+  },
+  dateTimeSelectedText: {
+    fontSize: 16,
+    color: '#2c3e50',
+    fontWeight: '500',
+  },
+  dateTimePlaceholder: {
+    fontSize: 16,
+    color: '#95a5a6',
+  },
+  buttonContainer: {
+    gap: 15,
+    marginTop: 10,
+  },
+  searchButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#4169E1',
+    borderRadius: 16,
+    paddingVertical: 18,
+    gap: 10,
+    shadowColor: '#4169E1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  searchButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  agencyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(65, 105, 225, 0.1)',
+    borderRadius: 16,
+    paddingVertical: 16,
     borderColor: '#4169E1',
+    borderWidth: 2,
+    gap: 10,
   },
-  actionButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
+  agencyButtonText: {
     color: '#4169E1',
-    marginLeft: 6,
-  },
-  cancelButtonText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#EF4444',
-    marginLeft: 6,
-  },
-  primaryButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginLeft: 6,
   },
 });
 
-export default HistoriqueReservation;
+export default HomeScreen;

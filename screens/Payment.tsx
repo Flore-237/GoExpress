@@ -21,8 +21,14 @@ import { useAuth } from '../contexts/AuthContext';
 import firestore from '@react-native-firebase/firestore';
 import * as Animatable from 'react-native-animatable';
 import { ROUTES } from '../constants/routes';
+import NotchPayPayment from '../components/NotchPayPayment';
 
 const { width } = Dimensions.get('window');
+
+interface RouteParams {
+  reservationData: any;
+  reservationId: string;
+}
 
 interface PassengerInfo {
   firstName: string;
@@ -32,18 +38,20 @@ interface PassengerInfo {
   gender: string;
 }
 
-const ReservationScreen = () => {
+const PaymentScreen = () => {
   const { user } = useAuth();
   const navigation = useNavigation();
   const route = useRoute();
+  const params = route.params as RouteParams;
   
-  const { reservationData, reservationId } = route.params || {};
+  const { reservationData, reservationId } = params;
   const [isLoading, setIsLoading] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
   const [paymentPhone, setPaymentPhone] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [currentPassengerIndex, setCurrentPassengerIndex] = useState(0);
+  const [showPayment, setShowPayment] = useState(false);
 
   // État pour les informations des passagers
   const [passengersInfo, setPassengersInfo] = useState<PassengerInfo[]>([]);
@@ -99,7 +107,7 @@ const ReservationScreen = () => {
       .doc(reservationId)
       .onSnapshot(doc => {
         if (doc.exists) {
-          const data = doc.data();
+          const data = doc.data() as { [key: string]: any } || {};
           setVoyageInfo({
             agencyName: data.nomAgence || 'Agence inconnue',
             logoUrl: data.logoAgence || 'https://via.placeholder.com/60',
@@ -199,36 +207,69 @@ const ReservationScreen = () => {
       return;
     }
 
-    if (!selectedPaymentMethod || !paymentPhone) {
-      Alert.alert('Erreur', 'Veuillez sélectionner un mode de paiement et entrer votre numéro');
+    if (!selectedPaymentMethod) {
+      Alert.alert('Erreur', 'Veuillez sélectionner une méthode de paiement');
+      return;
+    }
+
+    if (!paymentPhone) {
+      Alert.alert('Erreur', 'Veuillez entrer votre numéro de téléphone');
       return;
     }
 
     setIsLoading(true);
 
     try {
-      await simulatePayment();
-
       const userId = await getCurrentUserId();
       if (!userId) {
         throw new Error('Utilisateur non identifié');
       }
 
-      // Mettre à jour la réservation avec les informations de tous les passagers
+      // Mettre à jour la réservation avec les informations de tous les passagers et le paiement
       await firestore().collection('reservations').doc(reservationId).update({
         userId: userId,
         userEmail: user?.email || '',
-        statut: 'confirmé',
-        statutPaiement: 'confirmé',
+        statut: 'en attente de paiement',
+        passengersInfo: passengersInfo,
         paymentMethod: selectedPaymentMethod,
         paymentPhone: paymentPhone,
-        passengersInfo: passengersInfo,
-        confirmedAt: firestore.FieldValue.serverTimestamp(),
-        createdAt: firestore.FieldValue.serverTimestamp(),
         updatedAt: firestore.FieldValue.serverTimestamp()
       });
 
-      // Générer un ticket pour chaque passager
+      // Simuler le succès du paiement pour le développement/test
+      await handlePaymentSuccess();
+
+      // Ancien code pour NotchPayPayment (mis en commentaire)
+      // setShowPayment(true);
+
+    } catch (error) {
+      console.error('Erreur:', error);
+      Alert.alert(
+        'Erreur',
+        error.message === 'Utilisateur non identifié' 
+          ? 'Vous devez être connecté pour effectuer une réservation.'
+          : 'Une erreur est survenue lors du traitement de votre réservation.'
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePaymentSuccess = async () => {
+    try {
+      const userId = await getCurrentUserId();
+      if (!userId) {
+        throw new Error('Utilisateur non identifié');
+      }
+
+      // Mettre à jour le statut de la réservation après paiement réussi
+      await firestore().collection('reservations').doc(reservationId).update({
+        statut: 'confirmé',
+        statutPaiement: 'confirmé',
+        confirmedAt: firestore.FieldValue.serverTimestamp()
+      });
+
+      // Générer les tickets
       const tickets = passengersInfo.map((passenger, index) => ({
         ...voyageInfo,
         userId: userId,
@@ -238,43 +279,45 @@ const ReservationScreen = () => {
         phone: passenger.phone,
         gender: passenger.gender,
         seatType: voyageInfo.seatType,
-        seats: [voyageInfo.seats[index]], // Un seul siège par ticket
-        totalPrice: voyageInfo.totalPrice / voyageInfo.numberOfSeats, // Prix divisé par le nombre de passagers
+        seats: [voyageInfo.seats[index]],
+        totalPrice: voyageInfo.totalPrice / voyageInfo.numberOfSeats,
         paymentMethod: selectedPaymentMethod,
-        reservationId: `${reservationId}_${index + 1}` // ID unique pour chaque ticket
+        paymentPhone: paymentPhone,
+        reservationId: `${reservationId}_${index + 1}`
       }));
 
-      // Afficher la boîte de dialogue de succès
-      Alert.alert(
-        'Paiement Réussi !',
-        'Votre réservation a été confirmée avec succès.',
-        [
-          {
-            text: 'Voir mes billets',
-            style: 'default',
-            onPress: () => {
-              // Naviguer vers la page des tickets avec tous les tickets
-              navigation.navigate(ROUTES.TICKET, {
-                tickets: tickets
-              });
-            }
-          }
-        ],
-        { cancelable: false }
-      );
-
+      // Naviguer vers la page des tickets
+      navigation.replace(ROUTES.TICKET, {
+        tickets: tickets
+      });
     } catch (error) {
-      console.error('Erreur:', error);
+      console.error('Erreur lors de la génération des tickets:', error);
       Alert.alert(
         'Erreur',
-        error.message === 'Utilisateur non identifié' 
-          ? 'Vous devez être connecté pour effectuer une réservation.'
-          : 'Une erreur est survenue lors du paiement.'
+        'Une erreur est survenue lors de la génération des tickets.'
       );
-    } finally {
-      setIsLoading(false);
     }
   };
+
+  if (showPayment) {
+    return (
+      <NotchPayPayment
+        amount={voyageInfo.totalPrice}
+        email={user?.email || ''}
+        description={`Réservation GoExpress - ${voyageInfo.departure} vers ${voyageInfo.destination}`}
+        reservationId={reservationId}
+        onSuccess={handlePaymentSuccess}
+        onError={(error) => {
+          console.error('Erreur de paiement:', error);
+          Alert.alert(
+            'Erreur de paiement',
+            'Une erreur est survenue lors du traitement de votre paiement. Veuillez réessayer.'
+          );
+          setShowPayment(false);
+        }}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -980,4 +1023,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ReservationScreen;
+export default PaymentScreen;

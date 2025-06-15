@@ -12,6 +12,8 @@ import {
 import Feather from 'react-native-vector-icons/Feather';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { getAgencyLogo } from '../utils/agencyUtils';
 
 interface RouteParams {
   reservationId: string;
@@ -49,17 +51,6 @@ const DetailReservation = () => {
     fetchReservationDetails();
   }, [reservationId]);
 
-  const getAgencyLogo = () => {
-    if (reservation?.agencyId === 'bucca_voyage') {
-      return require('../assets/images/BucaLogo.jpg');
-    } else if (reservation?.agencyId === 'general_express_voyage') {
-      return require('../assets/images/generaleLogo.jpg');
-    } else if (reservation?.agencyId === 'touristique_express_voyage') {
-      return require('../assets/images/touristique.jpg');
-    }
-    return require('../assets/images/logo.png');
-  };
-
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -84,8 +75,8 @@ const DetailReservation = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Feather name="arrow-left" size={24} color="#4169E1" />
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Icon name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Détails de la réservation</Text>
         <View style={styles.placeholder} />
@@ -94,7 +85,11 @@ const DetailReservation = () => {
       <ScrollView style={styles.content}>
         <View style={styles.journeyCard}>
           <View style={styles.agencyHeader}>
-            <Image source={getAgencyLogo()} style={styles.agencyLogo} />
+            <Image
+              source={getAgencyLogo(reservation.agencyId)}
+              style={styles.agencyLogo}
+              defaultSource={require('../assets/images/GoExpress.png')}
+            />
             <Text style={styles.agencyName}>{reservation.nomAgence || 'Agence'}</Text>
             <Text style={styles.departureTime}>{reservation.heureDepart || '--:--'}</Text>
           </View>

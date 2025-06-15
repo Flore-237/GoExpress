@@ -2461,34 +2461,34 @@
   dependencies:
     invariant "^2.2.4"
 
-"@react-native-firebase/app@^22.2.0", "@react-native-firebase/app@22.2.0":
-  version "22.2.0"
-  resolved "https://registry.npmjs.org/@react-native-firebase/app/-/app-22.2.0.tgz"
-  integrity sha512-zw7KRo1nZwj9+ED6SHgl5/ioRqcA8RwqBuiGWx5Nrr4JrhbLpaihfPuDsGcn0LvEO5knVrhZvQP1fgzLjRsUgw==
+"@react-native-firebase/app@22.2.1":
+  version "22.2.1"
+  resolved "https://registry.npmjs.org/@react-native-firebase/app/-/app-22.2.1.tgz"
+  integrity sha512-FNekjZgvLLBWLNMGKfKUHR4TTu8OY1YnvlQV9HaNboF5U5+CvTcK8IKycXKdhVP8YfcILTaM3AFraoQsQsy3/w==
   dependencies:
     firebase "11.3.1"
 
-"@react-native-firebase/auth@^22.2.0":
-  version "22.2.0"
-  resolved "https://registry.npmjs.org/@react-native-firebase/auth/-/auth-22.2.0.tgz"
-  integrity sha512-RnuZVisa9a/ey9nyeBHUDkMNwoHLRuvDCjGwC/qgj/ygyEAjOTV4zqZ/OHSVOhQO/UwU4L0tYdxwT2EQorhgDA==
+"@react-native-firebase/auth@22.2.1":
+  version "22.2.1"
+  resolved "https://registry.npmjs.org/@react-native-firebase/auth/-/auth-22.2.1.tgz"
+  integrity sha512-qy8TvT4MXmrR3d9xv7kAs7hBUVXo0n2u/rkaWK57TI8E4TmSlTwYiFOqabSlk9VjiHCYZtjpcWHeG1xwpzZ5ig==
   dependencies:
     plist "^3.1.0"
 
-"@react-native-firebase/firestore@^22.2.0":
-  version "22.2.0"
-  resolved "https://registry.npmjs.org/@react-native-firebase/firestore/-/firestore-22.2.0.tgz"
-  integrity sha512-SO6U9u2B4sDuu+R5o7XxtB7Yvf860tZU6yNQNtdlIeXCtf8Sj67OrQbJcPBX7TJftTmuzDd2gzxaOMwAOLsdDw==
+"@react-native-firebase/firestore@22.2.1":
+  version "22.2.1"
+  resolved "https://registry.npmjs.org/@react-native-firebase/firestore/-/firestore-22.2.1.tgz"
+  integrity sha512-QM5r9QN45Adn/N2BkbuQNlTiTwWlHsILIrL73psOyyyAihtQpig4bAJKVhNJdUthmR0PapI/xHG9+/1D1d6Czg==
 
-"@react-native-firebase/messaging@^22.2.0":
-  version "22.2.0"
-  resolved "https://registry.npmjs.org/@react-native-firebase/messaging/-/messaging-22.2.0.tgz"
-  integrity sha512-bAkVKcXTcFyqXsVw2cgOk0pX8yW1IpQd3+CeLBywB1/L56lIk3e2giGuTqDjw2sspRbSRu/JOMU4YEZ/8/+7rA==
+"@react-native-firebase/messaging@22.2.1":
+  version "22.2.1"
+  resolved "https://registry.npmjs.org/@react-native-firebase/messaging/-/messaging-22.2.1.tgz"
+  integrity sha512-gSl171dIeLwKgJYZVHeRHBW8vw61qlsLobimOaW1fjX5rrN8llMUB5FJ8Gbd+00w9uaUTn02eWODcV6ZOjn/9g==
 
-"@react-native-firebase/storage@^22.2.0":
-  version "22.2.0"
-  resolved "https://registry.npmjs.org/@react-native-firebase/storage/-/storage-22.2.0.tgz"
-  integrity sha512-l+J3UdmXK0Q6iE8Xs+GENCOnhVyc3DTFfE0x7/k2h4+TBDCph2pDBfpdxf7n0NqdAV1C/5wxCzeMEzgMngMSkQ==
+"@react-native-firebase/storage@22.2.1":
+  version "22.2.1"
+  resolved "https://registry.npmjs.org/@react-native-firebase/storage/-/storage-22.2.1.tgz"
+  integrity sha512-l+XGUMN+HZJv9bFx5zP3Rbq0BFsdatel/EjWZPV2uXBiFJTCBXp2fryPSYUjdlWiVYJYmSLxENBZpwFOSY6wIg==
 
 "@react-native-picker/picker@^2.11.0":
   version "2.11.0"
@@ -7055,6 +7055,11 @@ react-native-svg@^15.12.0, "react-native-svg@> 6.4.1", react-native-svg@>=14.0.0
     css-select "^5.1.0"
     css-tree "^1.1.3"
     warn-once "0.1.1"
+
+react-native-toast-message@^2.3.0:
+  version "2.3.0"
+  resolved "https://registry.npmjs.org/react-native-toast-message/-/react-native-toast-message-2.3.0.tgz"
+  integrity sha512-d7LldTK1ei1Bl7RFhoOYw8hVQ4oKPQHORYI//xR9Pyz3HxSlFlvQbueE5X3KLoemRRgBrOUg3zY6DxXnxrVLRg==
 
 react-native-vector-icons@^10.2.0:
   version "10.2.0"

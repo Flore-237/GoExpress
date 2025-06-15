@@ -26,6 +26,9 @@ import { ROUTES } from '../constants/routes';
 import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
 import LinearGradient from 'react-native-linear-gradient';
+import { getAgencyLogo } from '../utils/agencyUtils';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
 const { width, height } = Dimensions.get('window');
 
@@ -208,18 +211,14 @@ const TicketScreen = () => {
     };
 
     fetchTicketData();
-  }, [tickets, currentTicketIndex, ticketData, reservationId, user]);
+  }, [ticketData, tickets, reservationId, currentTicketIndex, user]);
 
   // Formatage de la date
   const formatDate = (dateString: string): string => {
     if (!dateString) return '';
     try {
       const date = new Date(dateString);
-      return date.toLocaleDateString('fr-FR', { 
-        day: 'numeric', 
-        month: 'long', 
-        year: 'numeric' 
-      });
+      return format(date, 'd MMMM yyyy', { locale: fr });
     } catch (e) {
       return dateString;
     }
@@ -340,7 +339,7 @@ const TicketScreen = () => {
           <View style={styles.ticket}>
             <View style={styles.ticketHeader}>
               <Image
-                source={{ uri: ticket.logoUrl }}
+                source={getAgencyLogo(ticket.reservationId.split('-')[0])}
                 style={styles.agencyLogo}
                 defaultSource={require('../assets/images/GoExpress.png')}
               />
