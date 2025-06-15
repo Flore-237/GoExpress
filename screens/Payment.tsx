@@ -13,11 +13,12 @@ import {
   Modal,
   Dimensions
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, NavigationProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, AuthUser } from '../contexts/AuthContext';
 import firestore from '@react-native-firebase/firestore';
 import * as Animatable from 'react-native-animatable';
 import { ROUTES } from '../constants/routes';
@@ -38,9 +39,45 @@ interface PassengerInfo {
   gender: string;
 }
 
+interface Seat {
+  number: string; // Ou number, selon votre implémentation
+  label: string;
+  // Ajoutez d'autres propriétés de siège si nécessaire
+}
+
+interface VoyageInfoType {
+  agencyName: string;
+  logoUrl: string;
+  departure: string;
+  destination: string;
+  departureTime: string;
+  departureDate: string;
+  seatType: string;
+  numberOfSeats: number;
+  totalPrice: number;
+  seats: Seat[];
+  reservationId: string;
+}
+
+type RootStackParamList = {
+  SEARCH_RESULTS: {
+    departure: string;
+    destination: string;
+    date?: string;
+    time?: string;
+  };
+  AGENCY_SELECT: undefined;
+  LOGIN: undefined;
+  PROFILE: undefined;
+  MainTabs: { screen?: string };
+  Notification: undefined;
+  TICKET: { tickets: any[] }; // Assurez-vous que cette route existe et qu'elle est correctement typée
+  // ...ajoutez ici vos autres routes si nécessaire
+};
+
 const PaymentScreen = () => {
   const { user } = useAuth();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute();
   const params = route.params as RouteParams;
   
@@ -57,7 +94,7 @@ const PaymentScreen = () => {
   const [passengersInfo, setPassengersInfo] = useState<PassengerInfo[]>([]);
 
   // Voyage info state with real-time updates
-  const [voyageInfo, setVoyageInfo] = useState({
+  const [voyageInfo, setVoyageInfo] = useState<VoyageInfoType>({
     agencyName: '',
     logoUrl: '',
     departure: '',
@@ -127,7 +164,7 @@ const PaymentScreen = () => {
     return () => unsubscribe();
   }, [reservationId]);
 
-  const formatDate = (dateString) => {
+  const formatDate = (dateString: string) => {
     if (!dateString) return '';
     try {
       const date = new Date(dateString);
@@ -141,7 +178,7 @@ const PaymentScreen = () => {
     }
   };
 
-  const formatPrice = (price) => {
+  const formatPrice = (price: string | number) => {
     const numPrice = typeof price === 'string' ? parseFloat(price) : price;
     return `${Number(numPrice).toLocaleString('fr-FR')} FCFA`;
   };
@@ -175,8 +212,13 @@ const PaymentScreen = () => {
 
   const getCurrentUserId = async () => {
     try {
-      if (user?.uid || user?.id) {
-        return user.uid || user.id;
+      if (user) {
+        if (user.uid || user.id) {
+          return user.uid || user.id;
+        }
+        if (user.email) {
+          return user.email;
+        }
       }
 
       const userData = await AsyncStorage.getItem('userData');
@@ -185,12 +227,8 @@ const PaymentScreen = () => {
         return parsedData.uid || parsedData.id;
       }
 
-      if (user?.email) {
-        return user.email;
-      }
-
       throw new Error('Impossible de récupérer l\'ID utilisateur');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erreur récupération ID utilisateur:', error);
       return null;
     }
@@ -242,7 +280,7 @@ const PaymentScreen = () => {
       // Ancien code pour NotchPayPayment (mis en commentaire)
       // setShowPayment(true);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erreur:', error);
       Alert.alert(
         'Erreur',
@@ -266,7 +304,10 @@ const PaymentScreen = () => {
       await firestore().collection('reservations').doc(reservationId).update({
         statut: 'confirmé',
         statutPaiement: 'confirmé',
-        confirmedAt: firestore.FieldValue.serverTimestamp()
+        confirmedAt: firestore.FieldValue.serverTimestamp(),
+        voyageInfo: voyageInfo,
+        userEmail: user?.email || '',
+        userId: userId,
       });
 
       // Générer les tickets
@@ -287,10 +328,10 @@ const PaymentScreen = () => {
       }));
 
       // Naviguer vers la page des tickets
-      navigation.replace(ROUTES.TICKET, {
+      navigation.navigate('TICKET', {
         tickets: tickets
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erreur lors de la génération des tickets:', error);
       Alert.alert(
         'Erreur',
@@ -307,7 +348,7 @@ const PaymentScreen = () => {
         description={`Réservation GoExpress - ${voyageInfo.departure} vers ${voyageInfo.destination}`}
         reservationId={reservationId}
         onSuccess={handlePaymentSuccess}
-        onError={(error) => {
+        onError={(error: any) => {
           console.error('Erreur de paiement:', error);
           Alert.alert(
             'Erreur de paiement',

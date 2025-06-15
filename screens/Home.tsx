@@ -138,11 +138,17 @@ const HomeScreen = () => {
 
     console.log('Home.tsx - departureCity avant navigation:', departureCity);
     // Navigation vers l'écran des résultats avec les paramètres
-    navigation.navigate('SEARCH_RESULTS', {
-      departure: departureCity,
-      destination: destinationCity,
-      date: departureDate ? moment(departureDate).format('YYYY-MM-DD') : undefined,
-      time: departureTime ? moment(departureTime).format('HH:mm') : undefined
+    navigation.navigate(ROUTES.MAIN_TABS, {
+      screen: ROUTES.HOME_TAB,
+      params: {
+        screen: ROUTES.SEARCH_RESULTS,
+        params: {
+          departure: departureCity,
+          destination: destinationCity,
+          date: departureDate ? moment(departureDate).format('YYYY-MM-DD') : undefined,
+          time: departureTime ? moment(departureTime).format('HH:mm') : undefined
+        }
+      }
     });
 
     // Réinitialiser le formulaire après la navigation
@@ -150,7 +156,12 @@ const HomeScreen = () => {
   };
 
   const navigateToAgencySelection = () => {
-    navigation.navigate('AGENCY_SELECT');
+    navigation.navigate(ROUTES.MAIN_TABS, {
+      screen: ROUTES.HOME_TAB,
+      params: {
+        screen: ROUTES.AGENCY_SELECT
+      }
+    });
   };
 
   const navigateToProfile = () => {
