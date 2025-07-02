@@ -80,11 +80,10 @@ const LoginScreen = () => {
       
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       const userData = userDoc.data();
+      const userWithId = { ...userData, id: userCredential.user.uid };
 
-      await AsyncStorage.setItem('userData', JSON.stringify(userData));
-      await AsyncStorage.setItem('authToken', userCredential.user.uid);
-      
-      setUser(userData);
+      await AsyncStorage.setItem('user', JSON.stringify(userWithId));
+      setUser(userWithId);
       setIsAuthenticated(true);
       setIsLoggedIn(true);
       

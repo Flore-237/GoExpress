@@ -19,12 +19,14 @@ import { auth, db } from '../config/firebase';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, enableNetwork, disableNetwork } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Animatable from 'react-native-animatable';
-import { ROUTES } from '../App';
+import { ROUTES } from '../constants/routes';
+import { useAuth } from '../contexts/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 
-const ProfileScreen = ({ setIsLoggedIn }) => {
+const ProfileScreen = () => {
   const navigation = useNavigation();
+  const { setIsLoggedIn } = useAuth();
   const [userProfile, setUserProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -316,9 +318,7 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
               
               await AsyncStorage.multiRemove(keysToRemove);
               
-              if (setIsLoggedIn) {
-                setIsLoggedIn(false);
-              }
+              setIsLoggedIn(false);
               
               navigation.reset({
                 index: 0,
@@ -354,6 +354,7 @@ const ProfileScreen = ({ setIsLoggedIn }) => {
     }
   };
 
+  // Recharge le profil à chaque focus sur l'écran
   useFocusEffect(
     useCallback(() => {
       loadUserProfile();

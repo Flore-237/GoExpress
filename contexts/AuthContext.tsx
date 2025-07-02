@@ -1,26 +1,56 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, Dispatch, SetStateAction } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const AuthContext = createContext({
-  isAuthenticated: false,
-  setIsAuthenticated: () => {},
-  user: null,
-  setUser: () => {},
-  isLoggedIn: false,
-  setIsLoggedIn: () => {},
-});
+interface AuthContextType {
+  isAuthenticated: boolean;
+  setIsAuthenticated: Dispatch<SetStateAction<boolean>>;
+  user: any;
+  setUser: Dispatch<SetStateAction<any>>;
+  isLoggedIn: boolean;
+  setIsLoggedIn: Dispatch<SetStateAction<boolean>>;
+  loading: boolean;
+}
 
-export const AuthProvider = ({ children }) => {
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const value = {
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const userData = await AsyncStorage.getItem('user');
+        if (userData) {
+          setUser(JSON.parse(userData));
+          setIsAuthenticated(true);
+          setIsLoggedIn(true);
+        } else {
+          setUser(null);
+          setIsAuthenticated(false);
+          setIsLoggedIn(false);
+        }
+      } catch (e) {
+        setUser(null);
+        setIsAuthenticated(false);
+        setIsLoggedIn(false);
+      } finally {
+        setLoading(false);
+      }
+    };
+    checkSession();
+  }, []);
+
+  const value: AuthContextType = {
     isAuthenticated,
     setIsAuthenticated,
     user,
     setUser,
     isLoggedIn,
     setIsLoggedIn,
+    loading,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

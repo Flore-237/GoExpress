@@ -98,30 +98,54 @@ const PaymentScreen = () => {
     }
   }, [voyageInfo.numberOfSeats, user]);
 
+  useEffect(() => {
+    console.log('=== DEBUG PAYMENT SCREEN ===');
+    console.log('Paramètres route:', params);
+    console.log('reservationId:', reservationId);
+    console.log('reservationData:', reservationData);
+    console.log('============================');
+  }, [params, reservationId, reservationData]);
+
   // Fetch reservation data in real-time
   useEffect(() => {
-    if (!reservationId) return;
+    if (!reservationId) {
+      console.warn('Aucun reservationId fourni');
+      return;
+    }
+
+    console.log('Écoute des changements pour reservationId:', reservationId);
 
     const unsubscribe = firestore()
       .collection('reservations')
       .doc(reservationId)
       .onSnapshot(doc => {
+        console.log('Document snapshot reçu:', doc.exists);
+        
         if (doc.exists) {
           const data = doc.data() as { [key: string]: any } || {};
-          setVoyageInfo({
-            agencyName: data.nomAgence || 'Agence inconnue',
-            logoUrl: data.logoAgence || 'https://via.placeholder.com/60',
-            departure: data.villeDepart || data.departure || '',
+          console.log('Données de la réservation:', data);
+          
+          const newVoyageInfo = {
+            agencyName: data.nomAgence || data.agencyName || 'Agence inconnue',
+            logoUrl: data.logoAgence || data.logoUrl || 'https://via.placeholder.com/60',
+            departure: data.villeDepart || data.departure || data.origin || '',
             destination: data.villeArrivee || data.destination || '',
-            departureTime: data.heureDepart || '',
+            departureTime: data.heureDepart || data.departureTime || '',
             departureDate: data.dateVoyage || data.departureDate || '',
             seatType: data.seatType || data.typePlace || '',
             numberOfSeats: data.numberOfSeats || data.seats?.length || 0,
             totalPrice: data.prixTotal || data.totalPrice || 0,
             seats: data.seats || [],
             reservationId: reservationId
-          });
+          };
+          
+          console.log('Voyage info mis à jour:', newVoyageInfo);
+          setVoyageInfo(newVoyageInfo);
+        } else {
+          console.error('Document de réservation non trouvé pour ID:', reservationId);
         }
+      }, error => {
+        console.error('Erreur lors de l\'écoute de la réservation:', error);
       });
 
     return () => unsubscribe();

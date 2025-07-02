@@ -11,7 +11,9 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { useNavigation, NavigationProp } from '@react-navigation/native';
+import { useNavigation, NavigationProp, NavigatorScreenParams, CompositeNavigationProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import firestore from '@react-native-firebase/firestore';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/Feather';
@@ -26,23 +28,52 @@ interface CityOption {
   value: string;
 }
 
-type RootStackParamList = {
-  SEARCH_RESULTS: {
+
+type HomeStackParamList = {
+  'Home': undefined;
+  'SearchResults': {
     departure: string;
     destination: string;
     date?: string;
     time?: string;
   };
-  AGENCY_SELECT: undefined;
-  LOGIN: undefined;
-  PROFILE: undefined;
-  MainTabs: { screen?: string };
-  Notification: undefined;
-  // ...ajoutez ici vos autres routes
+  'AgencySelect': undefined;
+  'AgencyDetail': undefined;
+  'SeatSelection': undefined;
+  'Payment': undefined;
+  'Ticket': { tickets: any[] }; 
+  'HistoriqueReservation': undefined;
+  'DetailReservation': undefined;
 };
 
+
+type ReservationStackParamList = {
+  'HistoriqueReservation': undefined;
+  'DetailReservation': undefined;
+};
+
+// Define the parameter list for the ProfileStack (used within ProfileTab)
+type ProfileStackParamList = {
+  'Profile': undefined;
+};
+
+
+type MainTabNavigatorParamList = {
+  'HomeTab': NavigatorScreenParams<HomeStackParamList>;
+  'ReservationTab': NavigatorScreenParams<ReservationStackParamList>;
+  'HelpTab': undefined;
+  'ProfileTab': NavigatorScreenParams<ProfileStackParamList>;
+  'Notification': undefined; // Add Notification to MainTabNavigatorParamList
+};
+
+
+type HomeScreenNavigationProp = CompositeNavigationProp<
+  NativeStackNavigationProp<HomeStackParamList, typeof ROUTES.HOME>,
+  BottomTabNavigationProp<MainTabNavigatorParamList>
+>;
+
 const HomeScreen = () => {
-  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<HomeScreenNavigationProp>();
   const [departureCity, setDepartureCity] = useState<string | null>(null);
   const [destinationCity, setDestinationCity] = useState<string | null>(null);
   const [departureDate, setDepartureDate] = useState<Date | null>(null);
@@ -138,7 +169,7 @@ const HomeScreen = () => {
 
     console.log('Home.tsx - departureCity avant navigation:', departureCity);
     // Navigation vers l'écran des résultats avec les paramètres
-    navigation.navigate('SEARCH_RESULTS', {
+    navigation.navigate(ROUTES.SEARCH_RESULTS, {
       departure: departureCity,
       destination: destinationCity,
       date: departureDate ? moment(departureDate).format('YYYY-MM-DD') : undefined,
@@ -150,7 +181,7 @@ const HomeScreen = () => {
   };
 
   const navigateToAgencySelection = () => {
-    navigation.navigate('AGENCY_SELECT');
+    navigation.navigate(ROUTES.AGENCY_SELECT);
   };
 
   const navigateToProfile = () => {
@@ -161,7 +192,7 @@ const HomeScreen = () => {
         [
           {
             text: 'Se connecter',
-            onPress: () => navigation.navigate('LOGIN')
+            onPress: () => navigation.navigate(ROUTES.LOGIN) // Utilisez ROUTES.LOGIN ici si LOGIN est une route directe du Stack
           },
           {
             text: 'Annuler',
@@ -170,7 +201,8 @@ const HomeScreen = () => {
         ]
       );
     } else {
-      navigation.navigate('MainTabs', { screen: ROUTES.PROFILE_TAB });
+      // Naviguer vers l'onglet Profil
+      navigation.navigate(ROUTES.PROFILE_TAB); // Navigue directement vers l'onglet PROFILE_TAB
     }
   };
 
@@ -180,17 +212,9 @@ const HomeScreen = () => {
       
       {/* Header avec gradient */}
       <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <View>
-            <Text style={styles.welcomeText}>Bienvenue 👋</Text>
-            <Text style={styles.subWelcomeText}>Planifiez your voyage</Text>
-          </View>
-          <TouchableOpacity style={styles.notificationButton} onPress={() => navigation.navigate('Notification')}>
-            <View style={styles.notificationIconContainer}>
-              <Icon name="bell" size={22} color="#4A90E2" />
-              <View style={styles.notificationBadge} />
-            </View>
-          </TouchableOpacity>
+        <View style={styles.headerContentCentered}>
+          <Text style={styles.welcomeText}>Bienvenue 👋</Text>
+          <Text style={styles.subWelcomeText}>Planifiez votre voyage</Text>
         </View>
       </View>
 
@@ -366,35 +390,23 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  headerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  headerContentCentered: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
   },
   welcomeText: {
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1d1d1f',
+    fontWeight: '700',
+    color: '#1A1A1A',
+    textAlign: 'center',
   },
   subWelcomeText: {
     fontSize: 16,
-    color: '#666',
+    color: '#64748B',
     marginTop: 4,
-  },
-  notificationButton: {
-    padding: 8,
-  },
-  notificationIconContainer: {
-    position: 'relative',
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FF3B30',
+    textAlign: 'center',
   },
   scrollView: {
     flex: 1,
@@ -517,7 +529,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   formContainer: {
-    // Add any necessary styles for the form container
+    
   },
   inputGroup: {
     marginBottom: 15,
@@ -574,7 +586,7 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     marginTop: 24,
-    gap: 12,
+    gap: 12,  
   },
   agencyButton: {
     flexDirection: 'row',

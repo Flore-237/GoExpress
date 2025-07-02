@@ -175,28 +175,28 @@ const HistoriqueReservation: React.FC = () => {
 
   const getCurrentUserId = async () => {
     try {
-      // Essayer d'abord AsyncStorage
+      //  AsyncStorage
       const storedUserId = await AsyncStorage.getItem('userId');
       if (storedUserId) {
         console.log('User ID trouvé dans AsyncStorage:', storedUserId);
         return storedUserId;
       }
 
-      // Ensuite essayer authToken
+      // authToken
       const authToken = await AsyncStorage.getItem('authToken');
       if (authToken) {
         console.log('Auth token trouvé:', authToken);
         return authToken;
       }
       
-      // Enfin essayer Firebase auth
+  
       const currentUser = auth.currentUser;
       if (currentUser) {
         console.log('User ID trouvé dans Firebase auth:', currentUser.uid);
         return currentUser.uid;
       }
 
-      // Essayer de récupérer les données utilisateur stockées
+      //  récupérer les données utilisateur stockées
       const userData = await AsyncStorage.getItem('userData');
       if (userData) {
         const parsedUserData = JSON.parse(userData);
@@ -228,7 +228,7 @@ const HistoriqueReservation: React.FC = () => {
         return;
       }
 
-      // Essayer d'abord avec userId
+     
       let reservationsRef = firestore()
         .collection('reservations')
         .where('userId', '==', userId);
@@ -241,8 +241,7 @@ const HistoriqueReservation: React.FC = () => {
             // Si aucun résultat avec userId, essayer avec d'autres champs possibles
             console.log('Aucune réservation trouvée avec userId, essai avec d\'autres champs...');
             
-            // Vous pouvez ici essayer d'autres requêtes si nécessaire
-            // Par exemple si vous stockez l'ID utilisateur dans un autre champ
+          
           }
 
           const reservationsData = snapshot.docs.map(doc => {

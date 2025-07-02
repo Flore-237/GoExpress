@@ -76,7 +76,7 @@ const DetailReservation = () => {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Icon name="arrow-back" size={24} color="white" />
+          <Feather name="arrow-left" size={24} color="#4169E1" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Détails de la réservation</Text>
         <View style={styles.placeholder} />

@@ -20,6 +20,8 @@ export const ROUTES = {
   AGENCY_SELECT: 'AgencySelect',
   AGENCY_DETAIL: 'AgencyDetail',
   SEAT_SELECTION: 'SeatSelection',
+  SEAT_SELECTION_VIP: 'SeatSelectionVip',
+  SEAT_SELECTION_CLASSIQUE: 'SeatSelectionClassique',
   PAYMENT: 'Payment',
   TICKET: 'Ticket',
   TICKET_SCREEN: 'TicketScreen',

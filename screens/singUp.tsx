@@ -25,13 +25,32 @@ import { storage } from '../utils/storage';
 import { ROUTES } from '../constants/routes';
 import { useAuth } from '../contexts/AuthContext';
 import * as Animatable from 'react-native-animatable';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 
+interface RegistrationFormData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  password: string;
+  confirmPassword: string;
+}
+
+interface RegistrationFormErrors {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  password?: string;
+  confirmPassword?: string;
+}
+
 const RegistrationScreen = () => {
   const navigation = useNavigation();
-  const { storeUserData } = useAuth();
-  const [formData, setFormData] = useState({
+  const { setUser, setIsAuthenticated, setIsLoggedIn } = useAuth();
+  const [formData, setFormData] = useState<RegistrationFormData>({
     firstName: '',
     lastName: '',
     email: '',
@@ -42,8 +61,8 @@ const RegistrationScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [errors, setErrors] = useState({});
-  const [focusedField, setFocusedField] = useState('');
+  const [errors, setErrors] = useState<RegistrationFormErrors>({});
+  const [focusedField, setFocusedField] = useState<keyof RegistrationFormData | ''>('');
 
   // Validation du formulaire
   const validateForm = () => {
@@ -165,13 +184,21 @@ const RegistrationScreen = () => {
 
   const handleLoginSuccess = async (userData) => {
     try {
+      // Stocker sous la clé userData (pour compatibilité)
       await storage.storeUserData(userData);
+      // Stocker sous la clé 'user' (pour AuthContext)
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      // Mettre à jour le contexte Auth
+      setUser(userData);
+      setIsAuthenticated(true);
+      setIsLoggedIn(true);
+      // Rediriger vers la page d'accueil
       Alert.alert(
         'Bienvenue !',
         `Votre compte a été créé avec succès`,
         [{
           text: 'Continuer',
-          onPress: () => navigation.replace(ROUTES.LOGIN)
+          onPress: () => navigation.replace(ROUTES.HOME)
         }]
       );
     } catch (error) {

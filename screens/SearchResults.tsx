@@ -59,8 +59,28 @@ const SearchResultsScreen = () => {
         voyagesData.push({ id: doc.id, ...voyageData });
       });
 
-      console.log(`Voyages trouvés: ${voyagesData.length}`);
-      setVoyages(voyagesData);
+      // Grouper les voyages par agence, ville de départ, ville d'arrivée et date (ignorer l'horaire)
+      const voyageMap = {};
+      voyagesData.forEach(voyage => {
+        const key = `${voyage.departure}_${voyage.destination}_${voyage.dateDepart || voyage.dateVoyage}_${voyage.agencyId}`;
+        if (!voyageMap[key]) {
+          voyageMap[key] = [];
+        }
+        voyageMap[key].push(voyage);
+      });
+      const uniqueVoyages = Object.values(voyageMap).map(group => {
+        return {
+          ...group[0],
+          horaires: group.map(v => ({
+            id: v.id,
+            heureDepart: v.heureDepart,
+            typePlace: v.typePlace || v.seatType || 'Classique',
+            voyage: v
+          })),
+          allTypes: group // pour compatibilité éventuelle
+        };
+      });
+      setVoyages(uniqueVoyages);
       setLoading(false);
     } catch (error) {
       console.error('Erreur de recherche:', error);
@@ -82,25 +102,35 @@ const SearchResultsScreen = () => {
   };
 
   const handleVoyageSelect = (voyage) => {
-    const agencyDetails = agencies[voyage.agencyId] || {};
-    
-    console.log('Navigation vers SeatSelection avec:', { voyage, agencyDetails });
-    
-    try {
-      navigation.navigate('SeatSelection', { 
-        voyage,
-        agencyDetails,
-        departure,
-        destination,
-        date
-      });
-    } catch (error) {
-      console.error('Erreur de navigation:', error);
+    // Si plusieurs horaires sont disponibles, proposer le choix
+    if (voyage.horaires && voyage.horaires.length > 1) {
       Alert.alert(
-        'Erreur',
-        'Impossible d\'accéder à l\'écran de sélection de sièges: ' + error.message
+        'Choix de l\'horaire',
+        'Sélectionnez un horaire de départ',
+        [
+          ...voyage.horaires.map(h => ({
+            text: `${h.heureDepart} (${h.typePlace})`,
+            onPress: () => goToSeatSelection(h.voyage)
+          })),
+          { text: 'Annuler', style: 'cancel' }
+        ]
       );
+    } else if (voyage.horaires && voyage.horaires.length === 1) {
+      goToSeatSelection(voyage.horaires[0].voyage);
+    } else {
+      goToSeatSelection(voyage);
     }
+  };
+
+  const goToSeatSelection = (voyage) => {
+    const agencyDetails = agencies[voyage.agencyId] || {};
+    navigation.navigate('SeatSelection', { 
+      voyage,
+      agencyDetails,
+      departure,
+      destination,
+      date
+    });
   };
 
   const renderVoyageItem = ({ item }) => {
@@ -124,7 +154,11 @@ const SearchResultsScreen = () => {
         <View style={styles.voyageInfo}>
           <Text style={styles.voyageAgency}>{agency.name || 'Agence'}</Text>
           <View style={styles.voyageDetails}>
-            <Text style={styles.voyageTime}>Départ: {item.heureDepart}</Text>
+            <Text style={styles.voyageTime}>
+              {item.horaires && item.horaires.length > 1
+                ? `${item.horaires.length} horaires disponibles`
+                : `Départ: ${item.horaires && item.horaires[0]?.heureDepart}`}
+            </Text>
           </View>
         </View>
       </TouchableOpacity>

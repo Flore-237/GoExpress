@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, StatusBar, View, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import SplashScreen from 'react-native-splash-screen';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, RouteProp } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Feather from 'react-native-vector-icons/Feather';
@@ -20,7 +20,7 @@ import HoraireScreen from './screens/HoraireScreen';
 import Payment from './screens/Payment';
 import Profile from './screens/Profile';
 import SearchResults from './screens/SearchResults';
-import SeatSelection from './screens/Seat_selection';
+import SeatSelection from './screens/Seat_selectionClassique';
 import Ticket from './screens/Ticket';
 import WelcomeScreen from './screens/WelcomScreen';
 import FeaturesScreen from './screens/FutureScreen';
@@ -28,6 +28,8 @@ import FeaturesScreen3 from './screens/FutureScreen3';
 import LoginScreen from './screens/Login';
 import RegistrationScreen from './screens/singUp';
 import HistoriqueReservation from './screens/HistoriqueReservation';
+import SeatSelectionVipScreen from './screens/SeatSelectionVipScreen';
+import SeatSelectionClassiqScreen from './screens/Seat_selectionClassique';
 
 // Initialisation des navigateurs
 const Stack = createNativeStackNavigator();
@@ -35,7 +37,8 @@ const Tab = createBottomTabNavigator();
 const AuthStack = createNativeStackNavigator();
 const OnboardingStack = createNativeStackNavigator();
 
-function OnboardingNavigator({ onFinishOnboarding }) {
+function OnboardingNavigator({ route }: { route: RouteProp<any, any> }) {
+  const onFinishOnboarding = route?.params?.onFinishOnboarding || (() => {});
   return (
     <OnboardingStack.Navigator screenOptions={{ headerShown: false }}>
       <OnboardingStack.Screen name={ROUTES.WELCOME}>
@@ -59,6 +62,8 @@ function MainStackNavigator() {
       <Stack.Screen name={ROUTES.AGENCY_SELECT} component={AgencySelect} />
       <Stack.Screen name={ROUTES.AGENCY_DETAIL} component={AgencyDetail} />
       <Stack.Screen name={ROUTES.SEAT_SELECTION} component={SeatSelection} />
+      <Stack.Screen name={ROUTES.SEAT_SELECTION_VIP} component={SeatSelectionVipScreen} />
+      <Stack.Screen name={ROUTES.SEAT_SELECTION_CLASSIQUE} component={SeatSelectionClassiqScreen} />
       <Stack.Screen name={ROUTES.PAYMENT} component={Payment} />
       <Stack.Screen name={ROUTES.TICKET} component={Ticket} />
       <Stack.Screen 
@@ -156,11 +161,19 @@ function MainTabs() {
 }
 
 const App = () => {
-  const [hasOnboarded, setHasOnboarded] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  return (
+    <AuthProvider>
+      <MainAppNavigator />
+    </AuthProvider>
+  );
+};
 
-  // Add useEffect to hide SplashScreen after checking onboarding status
-  useEffect(() => {
+const MainAppNavigator: React.FC = () => {
+  const { isLoggedIn, loading } = useAuth();
+  const [hasOnboarded, setHasOnboarded] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(true);
+
+  React.useEffect(() => {
     const initialize = async () => {
       try {
         const hasOnboardedValue = await AsyncStorage.getItem('hasOnboarded');
@@ -169,25 +182,13 @@ const App = () => {
         console.error('Error checking onboarding status:', error);
       } finally {
         setIsLoading(false);
-        // Hide the splash screen after initialization
         SplashScreen.hide();
       }
     };
-
     initialize();
   }, []);
 
-  // Add this function to handle onboarding completion
-  const handleFinishOnboarding = async () => {
-    try {
-      await AsyncStorage.setItem('hasOnboarded', 'true');
-      setHasOnboarded(true);
-    } catch (error) {
-      console.error('Error saving onboarding status:', error);
-    }
-  };
-
-  if (isLoading) {
+  if (isLoading || loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={COLORS.primary} />
@@ -196,23 +197,21 @@ const App = () => {
   }
 
   return (
-    <AuthProvider>
-      <NavigationContainer>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          {!hasOnboarded ? (
-            <Stack.Screen name="Onboarding">
-              {() => <OnboardingNavigator onFinishOnboarding={handleFinishOnboarding} />}
-            </Stack.Screen>
-          ) : (
-            <Stack.Screen name={ROUTES.AUTH} component={AuthNavigator} />
-          )}
-        </Stack.Navigator>
-      </NavigationContainer>
-    </AuthProvider>
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {isLoggedIn ? (
+          <Stack.Screen name={ROUTES.MAIN_TABS} component={MainTabs} />
+        ) : !hasOnboarded ? (
+          <Stack.Screen name="Onboarding" component={OnboardingNavigator} initialParams={{ onFinishOnboarding: () => setHasOnboarded(true) }} />
+        ) : (
+          <Stack.Screen name={ROUTES.AUTH} component={AuthNavigator} />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 };
 
-const AuthNavigator = () => {
+const AuthNavigator: React.FC = () => {
   const { isLoggedIn } = useAuth();
 
   return (

@@ -10,7 +10,8 @@ import {
   StatusBar,
   SafeAreaView,
   Dimensions,
-  Linking
+  Linking,
+  Alert
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import Feather from 'react-native-vector-icons/Feather';
@@ -80,6 +81,7 @@ const AgencyDetailScreen = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [activeTab, setActiveTab] = useState('info');
+  const [voyageType, setVoyageType] = useState<'classique' | 'vip'>('classique');
 
   const fetchAgencyDetails = useCallback(async () => {
     try {
@@ -164,7 +166,24 @@ const AgencyDetailScreen = () => {
     }
   };
 
-  const handleBookTrip = (trip: Trip) => {
+  const handleBookTrip = (trip: any) => {
+    // Déterminer le type de voyage basé sur le filtre actuel
+    const isClassique = voyageType === 'classique';
+    const selectedVoyageType = isClassique ? 'Classique' : 'VIP';
+    
+    // Vérifier la disponibilité des places pour le type sélectionné
+    const availableSeats = isClassique ? 
+      (trip.placesClassiqueDisponibles || 0) : 
+      (trip.placesVIPDisponibles || 0);
+      
+    if (availableSeats === 0) {
+      Alert.alert(
+        'Places épuisées', 
+        `Plus de places ${selectedVoyageType.toLowerCase()} disponibles pour ce voyage.`
+      );
+      return;
+    }
+
     const tripDetails = {
       id: trip.id,
       origin: trip.departure || '',
@@ -175,14 +194,37 @@ const AgencyDetailScreen = () => {
       prixVIP: trip.prixVIP || 0,
       placesClassiqueDisponibles: trip.placesClassiqueDisponibles || 0,
       placesVIPDisponibles: trip.placesVIPDisponibles || 0,
-      agencyName: agency?.name || agencyName
+      placesClassiqueTotal: trip.placesClassiqueTotal || 70,
+      placesVIPTotal: trip.placesVIPTotal || 45,
+      agencyName: agency?.name || agencyName,
+      agencyId: agencyId,
+      logoUrl: agency?.logoUrl || '',
+      voyageType: selectedVoyageType, 
+      selectedFilter: voyageType // Pour debug
     };
-    
-    navigation.navigate('SeatSelection', { 
+
+    console.log('Navigation vers SeatSelection avec:', {
       tripId: trip.id,
       agencyId,
-      tripDetails: tripDetails
+      tripDetails,
+      voyageType: selectedVoyageType
     });
+
+    if (selectedVoyageType === 'VIP') {
+      navigation.navigate(ROUTES.SEAT_SELECTION_VIP, {
+        tripId: trip.id,
+        agencyId,
+        tripDetails: tripDetails,
+        voyageType: selectedVoyageType
+      });
+    } else {
+      navigation.navigate(ROUTES.SEAT_SELECTION_CLASSIQUE, {
+        tripId: trip.id,
+        agencyId,
+        tripDetails: tripDetails,
+        voyageType: selectedVoyageType
+      });
+    }
   };
 
   const getImageSource = (uri: string | undefined, type = 'banner') => {
@@ -439,23 +481,36 @@ const AgencyDetailScreen = () => {
           </View>
         ) : (
           <View style={styles.tripsContainer}>
-            {trips.length > 0 ? (
+            {/* Boutons de filtre */}
+            <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 16 }}>
+              <TouchableOpacity
+                style={[styles.filterButton, voyageType === 'classique' && styles.activeFilterButton]}
+                onPress={() => setVoyageType('classique')}
+              >
+                <Text style={[styles.filterButtonText, voyageType === 'classique' && styles.activeFilterButtonText]}>Voyage Classique</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.filterButton, voyageType === 'vip' && styles.activeFilterButton]}
+                onPress={() => setVoyageType('vip')}
+              >
+                <Text style={[styles.filterButtonText, voyageType === 'vip' && styles.activeFilterButtonText]}>Voyage VIP</Text>
+              </TouchableOpacity>
+            </View>
+            {trips.filter(trip => voyageType === 'classique' ? trip.prixClassique : trip.prixVIP).length > 0 ? (
               <>
                 <View style={styles.tripHeader}>
                   <Text style={styles.tripCountText}>
-                    {trips.length} voyage{trips.length > 1 ? 's' : ''} disponible{trips.length > 1 ? 's' : ''}
+                    {trips.filter(trip => voyageType === 'classique' ? trip.prixClassique : trip.prixVIP).length} voyage{trips.filter(trip => voyageType === 'classique' ? trip.prixClassique : trip.prixVIP).length > 1 ? 's' : ''} disponible{trips.filter(trip => voyageType === 'classique' ? trip.prixClassique : trip.prixVIP).length > 1 ? 's' : ''}
                   </Text>
                 </View>
 
-                {trips.map((trip) => {
+                {trips.filter(trip => voyageType === 'classique' ? trip.prixClassique : trip.prixVIP).map((trip) => {
                   const departureDate = trip.dateDepart 
                     ? new Date(trip.dateDepart) 
                     : null;
-                  
-                  const availableSeats = (trip.placesClassiqueDisponibles || 0) + (trip.placesVIPDisponibles || 0);
-                  
-                  const price = trip.prixClassique || trip.prixVIP || 'N/A';
-                  
+                  const isClassique = voyageType === 'classique';
+                  const price = isClassique ? trip.prixClassique : trip.prixVIP;
+                  const availableSeats = isClassique ? (trip.placesClassiqueDisponibles || 0) : (trip.placesVIPDisponibles || 0);
                   return (
                     <View key={trip.id} style={styles.tripCard}>
                       <View style={styles.tripInfoRow}>
@@ -476,25 +531,25 @@ const AgencyDetailScreen = () => {
                             Départ: {trip.heureDepart || 'N/A'} - {departureDate ? formatDate(departureDate) : 'N/A'}
                           </Text>
                         </View>
-
                         <View style={styles.detailRow}>
                           <Feather name="layers" size={16} color="#7F8C8D" />
                           <Text style={styles.detailText}>
-                            Classique: {trip.prixClassique || 'N/A'} FCFA - VIP: {trip.prixVIP || 'N/A'} FCFA
+                            {isClassique
+                              ? `Classique: ${trip.prixClassique || 'N/A'} FCFA`
+                              : `VIP: ${trip.prixVIP || 'N/A'} FCFA`}
                           </Text>
                         </View>
-
                         <View style={styles.detailRow}>
                           <Feather name="users" size={16} color="#7F8C8D" />
                           <Text style={styles.detailText}>
-                            Places disponibles: {availableSeats} (Classique: {trip.placesClassiqueDisponibles || 0}, VIP: {trip.placesVIPDisponibles || 0})
+                            Places disponibles: {availableSeats}
                           </Text>
                         </View>
                       </View>
 
                       <TouchableOpacity
                         style={styles.bookButton}
-                        onPress={() => handleBookTrip(trip)}
+                        onPress={() => handleBookTrip({ ...trip, voyageType: isClassique ? 'Classique' : 'VIP' })}
                       >
                         <Text style={styles.bookButtonText}>Réserver</Text>
                       </TouchableOpacity>
@@ -506,7 +561,7 @@ const AgencyDetailScreen = () => {
               <View style={styles.noTripsContainer}>
                 <Feather name="alert-circle" size={40} color="#95A5A6" />
                 <Text style={styles.noTripsText}>
-                  Aucun voyage disponible pour cette agence
+                  Aucun voyage {voyageType === 'classique' ? 'classique' : 'VIP'} disponible pour cette agence
                 </Text>
                 <Text style={styles.noTripsSubText}>
                   Veuillez vérifier ultérieurement
@@ -841,6 +896,28 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  filterButton: {
+    flex: 1,
+    paddingVertical: 10,
+    marginHorizontal: 8,
+    borderRadius: 20,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+  },
+  activeFilterButton: {
+    backgroundColor: '#4169E1',
+    borderColor: '#4169E1',
+  },
+  filterButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  activeFilterButtonText: {
+    color: '#FFFFFF',
   },
 });
 
