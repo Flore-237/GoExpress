@@ -11,7 +11,8 @@ import {
   ActivityIndicator,
   TextInput,
   Modal,
-  Dimensions
+  Dimensions,
+  Linking
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -19,11 +20,17 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import firestore from '@react-native-firebase/firestore';
-import * as Animatable from 'react-native-animatable';
+import * as Animatable from 'react-native-animatable'; 
 import { ROUTES } from '../constants/routes';
-import NotchPayPayment from '../components/NotchPayPayment';
 
 const { width } = Dimensions.get('window');
+
+// Configuration NotchPay
+const NOTCHPAY_CONFIG = {
+  apiKey: "pk.4ynuCkosXYPYNkQpQ4Jnw8GcfENZP4XWWgQV64Kun5Qxq2zWebgGhwxqMIOlw3gH7j0PAzoB1YCM2AbDNFiYELVa3ri6H6KWFyKqm0useQQij1JRNL2yIqN84sRrp",
+  baseURL: "https://api.notchpay.co",
+  merchantAccount: "655783879" // Compte de destination
+};
 
 interface RouteParams {
   reservationData: any;
@@ -36,6 +43,16 @@ interface PassengerInfo {
   email: string;
   phone: string;
   gender: string;
+}
+
+interface PaymentData {
+  email: string;
+  amount: number;
+  currency: string;
+  description: string;
+  reference: string;
+  callback: string;
+  metadata: any;
 }
 
 const PaymentScreen = () => {
@@ -51,7 +68,7 @@ const PaymentScreen = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [currentPassengerIndex, setCurrentPassengerIndex] = useState(0);
-  const [showPayment, setShowPayment] = useState(false);
+  const [paymentReference, setPaymentReference] = useState('');
 
   // État pour les informations des passagers
   const [passengersInfo, setPassengersInfo] = useState<PassengerInfo[]>([]);
@@ -70,6 +87,13 @@ const PaymentScreen = () => {
     seats: [],
     reservationId: ''
   });
+
+  // Générer une référence unique pour le paiement
+  const generatePaymentReference = () => {
+    const timestamp = Date.now();
+    const randomString = Math.random().toString(36).substring(2, 8);
+    return `GOEXPRESS_${reservationId}_${timestamp}_${randomString}`;
+  };
 
   // Initialiser les informations des passagers
   useEffect(() => {
@@ -151,6 +175,72 @@ const PaymentScreen = () => {
     return () => unsubscribe();
   }, [reservationId]);
 
+  // Validation du numéro de téléphone
+  const validatePhoneNumber = (phone: string, method: string) => {
+    const cleanPhone = phone.replace(/\s+/g, '');
+    
+    if (method === 'OM') {
+      // Orange Money: accepter tout numéro de 9 chiffres commençant par 6
+      return /^6\d{8}$/.test(cleanPhone);
+    } else if (method === 'MOMO') {
+      // MTN Mobile Money: commence par 650, 651, 652, 653, 654, 680, 681, 682, 683, 684
+      return /^(65[0-4]|68[0-4])\d{6}$/.test(cleanPhone);
+    }
+    return false;
+  };
+
+  // Initialiser le paiement NotchPay
+  const initializeNotchPayPayment = async (paymentData: PaymentData) => {
+    try {
+      console.log('Initialisation du paiement NotchPay:', paymentData);
+      
+      const response = await fetch(`${NOTCHPAY_CONFIG.baseURL}/payments/initialize`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": NOTCHPAY_CONFIG.apiKey,
+        },
+        body: JSON.stringify({
+          ...paymentData,
+          // Ajouter les informations spécifiques pour le mobile money
+          payment_method: selectedPaymentMethod === 'OM' ? 'orange_money' : 'mtn_momo',
+          phone: paymentPhone,
+          merchant_account: NOTCHPAY_CONFIG.merchantAccount
+        }),
+      });
+
+      const result = await response.json();
+      console.log('Réponse NotchPay:', result);
+
+      if (result.status && result.authorization_url) {
+        return result;
+      } else {
+        throw new Error(result.message || "Une erreur est survenue lors de l'initialisation du paiement");
+      }
+    } catch (error) {
+      console.error('Erreur initialisation NotchPay:', error);
+      throw error;
+    }
+  };
+
+  // Vérifier le statut du paiement
+  const checkPaymentStatus = async (reference: string) => {
+    try {
+      const response = await fetch(`${NOTCHPAY_CONFIG.baseURL}/payments/${reference}/status`, {
+        method: "GET",
+        headers: {
+          "Authorization": NOTCHPAY_CONFIG.apiKey,
+        },
+      });
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Erreur vérification statut:', error);
+      return null;
+    }
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return '';
     try {
@@ -175,26 +265,9 @@ const PaymentScreen = () => {
     setShowEditModal(true);
   };
 
-  const savePassengerInfo = (updatedInfo: PassengerInfo) => {
-    const newPassengersInfo = [...passengersInfo];
-    newPassengersInfo[currentPassengerIndex] = updatedInfo;
-    setPassengersInfo(newPassengersInfo);
-    setShowEditModal(false);
-  };
-
   const handlePaymentMethodSelect = (method: string) => {
     setSelectedPaymentMethod(method);
     setPaymentPhone('');
-  };
-
-  const simulatePayment = async () => {
-    setIsProcessing(true);
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        setIsProcessing(false);
-        resolve(true);
-      }, 2000);
-    });
   };
 
   const getCurrentUserId = async () => {
@@ -221,9 +294,12 @@ const PaymentScreen = () => {
   };
 
   const confirmReservation = async () => {
-    // Vérifier que tous les passagers ont leurs informations remplies
+    // Validation des informations des passagers
     const allPassengersFilled = passengersInfo.every(passenger => 
-      passenger.firstName && passenger.lastName && passenger.email && passenger.phone
+      passenger.firstName.trim() && 
+      passenger.lastName.trim() && 
+      passenger.email.trim() && 
+      passenger.phone.trim()
     );
 
     if (!allPassengersFilled) {
@@ -231,17 +307,38 @@ const PaymentScreen = () => {
       return;
     }
 
+    // Validation de la méthode de paiement
     if (!selectedPaymentMethod) {
       Alert.alert('Erreur', 'Veuillez sélectionner une méthode de paiement');
       return;
     }
 
-    if (!paymentPhone) {
+    // Validation du numéro de téléphone
+    if (!paymentPhone.trim()) {
       Alert.alert('Erreur', 'Veuillez entrer votre numéro de téléphone');
       return;
     }
 
+    if (!validatePhoneNumber(paymentPhone, selectedPaymentMethod)) {
+      const methodName = selectedPaymentMethod === 'OM' ? 'Orange Money' : 'MTN Mobile Money';
+      const expectedPrefix = selectedPaymentMethod === 'OM' ? '655-659' : '650-654, 680-684';
+      Alert.alert(
+        'Numéro invalide', 
+        `Le numéro ${methodName} doit commencer par ${expectedPrefix}`
+      );
+      return;
+    }
+
+    // Validation des emails
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const invalidEmails = passengersInfo.filter(passenger => !emailRegex.test(passenger.email));
+    if (invalidEmails.length > 0) {
+      Alert.alert('Erreur', 'Veuillez entrer des adresses email valides pour tous les passagers');
+      return;
+    }
+
     setIsLoading(true);
+    setIsProcessing(true);
 
     try {
       const userId = await getCurrentUserId();
@@ -249,7 +346,11 @@ const PaymentScreen = () => {
         throw new Error('Utilisateur non identifié');
       }
 
-      // Mettre à jour la réservation avec les informations de tous les passagers et le paiement
+      // Générer une référence unique pour le paiement
+      const reference = generatePaymentReference();
+      setPaymentReference(reference);
+
+      // Mettre à jour la réservation avec les informations complètes
       await firestore().collection('reservations').doc(reservationId).update({
         userId: userId,
         userEmail: user?.email || '',
@@ -257,29 +358,108 @@ const PaymentScreen = () => {
         passengersInfo: passengersInfo,
         paymentMethod: selectedPaymentMethod,
         paymentPhone: paymentPhone,
+        paymentReference: reference,
+        paymentStatus: 'pending',
         updatedAt: firestore.FieldValue.serverTimestamp()
       });
 
-      // Simuler le succès du paiement pour le développement/test
-      await handlePaymentSuccess();
+      // Préparer les données de paiement
+      const paymentData: PaymentData = {
+        email: user?.email || passengersInfo[0].email,
+        amount: voyageInfo.totalPrice,
+        currency: "XAF",
+        description: `Réservation GoExpress - ${voyageInfo.departure} vers ${voyageInfo.destination}`,
+        reference: reference,
+        callback: `https://goexpress.app/payment-callback/${reservationId}`,
+        metadata: {
+          reservationId: reservationId,
+          userId: userId,
+          numberOfSeats: voyageInfo.numberOfSeats,
+          departure: voyageInfo.departure,
+          destination: voyageInfo.destination,
+          departureDate: voyageInfo.departureDate,
+          departureTime: voyageInfo.departureTime,
+          paymentMethod: selectedPaymentMethod,
+          paymentPhone: paymentPhone,
+          passengers: passengersInfo.map(p => `${p.firstName} ${p.lastName}`).join(', ')
+        }
+      };
 
-      // Ancien code pour NotchPayPayment (mis en commentaire)
-      // setShowPayment(true);
+      // Initialiser le paiement NotchPay
+      const paymentResult = await initializeNotchPayPayment(paymentData);
+
+      if (paymentResult.authorization_url) {
+        // Debug : afficher l'URL de paiement
+        console.log('URL de paiement reçue:', paymentResult.authorization_url);
+        Alert.alert('Debug URL', paymentResult.authorization_url);
+        // Ouvrir l'URL de paiement directement
+        try {
+          await Linking.openURL(paymentResult.authorization_url);
+          // Surveiller le statut du paiement
+          startPaymentStatusMonitoring(reference);
+        } catch (e) {
+          throw new Error("Impossible d'ouvrir l'URL de paiement");
+        }
+      } else {
+        throw new Error('URL de paiement non reçue');
+      }
 
     } catch (error) {
       console.error('Erreur:', error);
       Alert.alert(
         'Erreur',
-        error.message === 'Utilisateur non identifié' 
-          ? 'Vous devez être connecté pour effectuer une réservation.'
-          : 'Une erreur est survenue lors du traitement de votre réservation.'
+        error.message || 'Une erreur est survenue lors du traitement de votre réservation.'
       );
+      setIsProcessing(false);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handlePaymentSuccess = async () => {
+  // Surveiller le statut du paiement
+  const startPaymentStatusMonitoring = (reference: string) => {
+    const checkStatus = async () => {
+      try {
+        const statusResult = await checkPaymentStatus(reference);
+        
+        if (statusResult?.status === 'success') {
+          // Paiement réussi
+          await handlePaymentSuccess(reference);
+          return true;
+        } else if (statusResult?.status === 'failed') {
+          // Paiement échoué
+          await handlePaymentFailure(reference, statusResult.message);
+          return true;
+        }
+        return false;
+      } catch (error) {
+        console.error('Erreur vérification statut:', error);
+        return false;
+      }
+    };
+
+    // Vérifier toutes les 5 secondes pendant 5 minutes maximum
+    const interval = setInterval(async () => {
+      const completed = await checkStatus();
+      if (completed) {
+        clearInterval(interval);
+      }
+    }, 5000);
+
+    // Arrêter après 5 minutes
+    setTimeout(() => {
+      clearInterval(interval);
+      if (isProcessing) {
+        setIsProcessing(false);
+        Alert.alert(
+          'Timeout',
+          'Le paiement prend plus de temps que prévu. Veuillez vérifier votre compte ou contacter le support.'
+        );
+      }
+    }, 300000); // 5 minutes
+  };
+
+  const handlePaymentSuccess = async (reference: string) => {
     try {
       const userId = await getCurrentUserId();
       if (!userId) {
@@ -290,6 +470,8 @@ const PaymentScreen = () => {
       await firestore().collection('reservations').doc(reservationId).update({
         statut: 'confirmé',
         statutPaiement: 'confirmé',
+        paymentStatus: 'success',
+        paymentReference: reference,
         confirmedAt: firestore.FieldValue.serverTimestamp()
       });
 
@@ -307,41 +489,73 @@ const PaymentScreen = () => {
         totalPrice: voyageInfo.totalPrice / voyageInfo.numberOfSeats,
         paymentMethod: selectedPaymentMethod,
         paymentPhone: paymentPhone,
-        reservationId: `${reservationId}_${index + 1}`
+        paymentReference: reference,
+        reservationId: `${reservationId}_${index + 1}`,
+        ticketId: `TICKET_${reservationId}_${index + 1}_${Date.now()}`
       }));
 
-      // Naviguer vers la page des tickets
-      navigation.replace(ROUTES.TICKET, {
-        tickets: tickets
-      });
+      setIsProcessing(false);
+
+      // Afficher un message de succès
+      Alert.alert(
+        'Paiement réussi',
+        'Votre réservation a été confirmée avec succès !',
+        [
+          {
+            text: 'Voir mes tickets',
+            onPress: () => {
+              navigation.replace(ROUTES.TICKET, {
+                tickets: tickets
+              });
+            }
+          }
+        ]
+      );
+
     } catch (error) {
       console.error('Erreur lors de la génération des tickets:', error);
+      setIsProcessing(false);
       Alert.alert(
         'Erreur',
-        'Une erreur est survenue lors de la génération des tickets.'
+        'Le paiement a réussi mais une erreur est survenue lors de la génération des tickets. Veuillez contacter le support.'
       );
     }
   };
 
-  if (showPayment) {
-    return (
-      <NotchPayPayment
-        amount={voyageInfo.totalPrice}
-        email={user?.email || ''}
-        description={`Réservation GoExpress - ${voyageInfo.departure} vers ${voyageInfo.destination}`}
-        reservationId={reservationId}
-        onSuccess={handlePaymentSuccess}
-        onError={(error) => {
-          console.error('Erreur de paiement:', error);
-          Alert.alert(
-            'Erreur de paiement',
-            'Une erreur est survenue lors du traitement de votre paiement. Veuillez réessayer.'
-          );
-          setShowPayment(false);
-        }}
-      />
-    );
-  }
+  const handlePaymentFailure = async (reference: string, message: string) => {
+    try {
+      // Mettre à jour le statut de la réservation
+      await firestore().collection('reservations').doc(reservationId).update({
+        statut: 'échec paiement',
+        statutPaiement: 'échec',
+        paymentStatus: 'failed',
+        paymentReference: reference,
+        paymentErrorMessage: message,
+        failedAt: firestore.FieldValue.serverTimestamp()
+      });
+
+      setIsProcessing(false);
+
+      Alert.alert(
+        'Paiement échoué',
+        message || 'Une erreur est survenue lors du paiement. Veuillez réessayer.',
+        [
+          {
+            text: 'Réessayer',
+            onPress: () => {
+              setSelectedPaymentMethod('');
+              setPaymentPhone('');
+              setPaymentReference('');
+            }
+          }
+        ]
+      );
+
+    } catch (error) {
+      console.error('Erreur lors de la mise à jour du statut d\'échec:', error);
+      setIsProcessing(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -358,7 +572,16 @@ const PaymentScreen = () => {
           <View style={styles.processingContent}>
             <ActivityIndicator size="large" color="#007aff" />
             <Text style={styles.processingText}>Traitement du paiement...</Text>
-            <Text style={styles.processingSubtext}>Veuillez patienter</Text>
+            <Text style={styles.processingSubtext}>Veuillez confirmer le paiement sur votre téléphone</Text>
+            <TouchableOpacity 
+              style={styles.cancelPaymentButton}
+              onPress={() => {
+                setIsProcessing(false);
+                Alert.alert('Paiement annulé', 'Vous pouvez réessayer quand vous le souhaitez.');
+              }}
+            >
+              <Text style={styles.cancelPaymentText}>Annuler</Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -574,79 +797,148 @@ const PaymentScreen = () => {
                 <TouchableOpacity
                   style={[styles.modalButton, styles.cancelButton]}
                   onPress={() => setShowEditModal(false)}
-                >
+                >>
                   <Text style={styles.cancelButtonText}>Annuler</Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={[styles.modalButton, styles.saveButton]}
                   onPress={() => setShowEditModal(false)}
                 >
-                  <Text style={styles.saveButtonText}>Enregistrer</Text>
+                  <Text style={styles.saveButtonText}>Sauvegarder</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         </Modal>
 
-        {/* Méthode de paiement */}
+        {/* Section paiement */}
         <Animatable.View animation="fadeInUp" duration={800} style={styles.paymentCard}>
           <Text style={styles.sectionTitle}>Méthode de paiement</Text>
           
           <View style={styles.paymentMethodsContainer}>
-            <TouchableOpacity 
-              style={[styles.paymentMethod, selectedPaymentMethod === 'OM' && styles.selectedPaymentMethod]}
+            <TouchableOpacity
+              style={[
+                styles.paymentMethod,
+                selectedPaymentMethod === 'OM' && styles.selectedPaymentMethod
+              ]}
               onPress={() => handlePaymentMethodSelect('OM')}
             >
-              <MaterialCommunityIcons name="cellphone" size={24} color="#FF6600" />
-              <Text style={styles.paymentMethodText}>Orange Money</Text>
-              {selectedPaymentMethod === 'OM' && (
-                <Icon name="checkmark-circle" size={20} color="#4CAF50" style={styles.checkIcon} />
-              )}
+              <View style={styles.paymentMethodLeft}>
+                <View style={styles.paymentMethodIcon}>
+                  <MaterialCommunityIcons name="cellphone" size={24} color="#FF6B00" />
+                </View>
+                <View>
+                  <Text style={styles.paymentMethodName}>Orange Money</Text>
+                  <Text style={styles.paymentMethodDesc}>655, 656, 657, 658, 659</Text>
+                </View>
+              </View>
+              <View style={styles.radioButton}>
+                {selectedPaymentMethod === 'OM' && <View style={styles.radioButtonInner} />}
+              </View>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={[styles.paymentMethod, selectedPaymentMethod === 'MOMO' && styles.selectedPaymentMethod]}
+            <TouchableOpacity
+              style={[
+                styles.paymentMethod,
+                selectedPaymentMethod === 'MOMO' && styles.selectedPaymentMethod
+              ]}
               onPress={() => handlePaymentMethodSelect('MOMO')}
             >
-              <MaterialCommunityIcons name="cellphone" size={24} color="#FFCC00" />
-              <Text style={styles.paymentMethodText}>MTN Mobile Money</Text>
-              {selectedPaymentMethod === 'MOMO' && (
-                <Icon name="checkmark-circle" size={20} color="#4CAF50" style={styles.checkIcon} />
-              )}
+              <View style={styles.paymentMethodLeft}>
+                <View style={styles.paymentMethodIcon}>
+                  <MaterialCommunityIcons name="cellphone" size={24} color="#FFCC00" />
+                </View>
+                <View>
+                  <Text style={styles.paymentMethodName}>MTN Mobile Money</Text>
+                  <Text style={styles.paymentMethodDesc}>650, 651, 652, 653, 654, 680-684</Text>
+                </View>
+              </View>
+              <View style={styles.radioButton}>
+                {selectedPaymentMethod === 'MOMO' && <View style={styles.radioButtonInner} />}
+              </View>
             </TouchableOpacity>
           </View>
 
           {selectedPaymentMethod && (
-            <View style={styles.phoneInputContainer}>
+            <Animatable.View animation="fadeInDown" duration={500} style={styles.phoneInputContainer}>
               <Text style={styles.phoneInputLabel}>
-                Numéro {selectedPaymentMethod === 'OM' ? 'Orange Money' : 'Mobile Money'} *
+                Numéro {selectedPaymentMethod === 'OM' ? 'Orange Money' : 'MTN Mobile Money'}
               </Text>
               <TextInput
                 style={styles.phoneInput}
-                placeholder="Ex: 655783879"
-                keyboardType="phone-pad"
+                placeholder={selectedPaymentMethod === 'OM' ? "655XXXXXX" : "650XXXXXX"}
                 value={paymentPhone}
                 onChangeText={setPaymentPhone}
+                keyboardType="phone-pad"
+                maxLength={9}
               />
-            </View>
+            </Animatable.View>
           )}
         </Animatable.View>
 
-        <View style={styles.confirmButtonContainer}>
-          <TouchableOpacity
-            style={[styles.confirmButton, isLoading && styles.disabledButton]}
-            onPress={confirmReservation}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text style={styles.confirmButtonText}>Confirmer la réservation</Text>
-            )}
-          </TouchableOpacity>
-        </View>
+        {/* Section récapitulatif */}
+        <Animatable.View animation="fadeInUp" duration={800} style={styles.summaryCard}>
+          <Text style={styles.sectionTitle}>Récapitulatif</Text>
+          
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Trajet</Text>
+            <Text style={styles.summaryValue}>
+              {voyageInfo.departure} → {voyageInfo.destination}
+            </Text>
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Date et heure</Text>
+            <Text style={styles.summaryValue}>
+              {formatDate(voyageInfo.departureDate)} à {voyageInfo.departureTime}
+            </Text>
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Nombre de places</Text>
+            <Text style={styles.summaryValue}>{voyageInfo.numberOfSeats}</Text>
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Type de place</Text>
+            <Text style={styles.summaryValue}>{voyageInfo.seatType}</Text>
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Numéros de place</Text>
+            <Text style={styles.summaryValue}>
+              {voyageInfo.seats.map(seat => seat.number).join(', ')}
+            </Text>
+          </View>
+
+          <View style={styles.summaryDivider} />
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabelTotal}>Total à payer</Text>
+            <Text style={styles.summaryValueTotal}>{formatPrice(voyageInfo.totalPrice)}</Text>
+          </View>
+        </Animatable.View>
       </ScrollView>
+
+      {/* Bouton de confirmation */}
+      <View style={styles.bottomContainer}>
+        <TouchableOpacity
+          style={[
+            styles.confirmButton,
+            isLoading && styles.disabledButton
+          ]}
+          onPress={confirmReservation}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.confirmButtonText}>
+              Confirmer et payer {formatPrice(voyageInfo.totalPrice)}
+            </Text>
+          )}
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 };
@@ -654,37 +946,38 @@ const PaymentScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f8f8',
+    backgroundColor: '#f5f5f5',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 15,
-    backgroundColor: 'white',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#e0e0e0',
   },
   backButton: {
-    padding: 5,
+    padding: 8,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#4169E1',
+    color: '#1d1d1f',
   },
   placeholder: {
-    width: 24,
+    width: 40,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 15,
+    padding: 16,
   },
   mainCard: {
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
+    padding: 16,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -694,56 +987,56 @@ const styles = StyleSheet.create({
   agencyHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 16,
   },
   agencyLogo: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 12,
   },
   agencyName: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
-    color: '#333',
+    color: '#1d1d1f',
   },
   routeContainer: {
-    marginBottom: 15,
+    marginBottom: 16,
   },
   routeInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   departureText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#1d1d1f',
     flex: 1,
-  },
-  destinationText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    flex: 1,
-    textAlign: 'right',
   },
   routeLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 10,
+    marginHorizontal: 16,
   },
   routeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#666',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#007aff',
   },
   routeDivider: {
-    width: 40,
-    height: 1,
-    backgroundColor: '#ddd',
+    width: 30,
+    height: 2,
+    backgroundColor: '#007aff',
+    marginHorizontal: 8,
+  },
+  destinationText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1d1d1f',
+    flex: 1,
+    textAlign: 'right',
   },
   timeDateContainer: {
     flexDirection: 'row',
@@ -754,45 +1047,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   timeText: {
-    marginLeft: 5,
+    fontSize: 14,
     color: '#666',
+    marginLeft: 4,
   },
   dateContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   dateText: {
-    marginLeft: 5,
+    fontSize: 14,
     color: '#666',
+    marginLeft: 4,
   },
   seatsInfoContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 16,
   },
   seatTypeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   seatTypeText: {
-    marginLeft: 5,
+    fontSize: 14,
     color: '#666',
+    marginLeft: 4,
   },
   seatsNumberContainer: {
     alignItems: 'flex-end',
   },
   seatsNumberText: {
-    color: '#666',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1d1d1f',
   },
   seatsNumbers: {
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 12,
+    color: '#666',
   },
   divider: {
     height: 1,
-    backgroundColor: '#eee',
-    marginVertical: 10,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 16,
   },
   priceContainer: {
     flexDirection: 'row',
@@ -801,18 +1099,19 @@ const styles = StyleSheet.create({
   },
   totalText: {
     fontSize: 16,
-    color: '#666',
+    fontWeight: '600',
+    color: '#1d1d1f',
   },
   priceText: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#FF6B00',
+    color: '#007aff',
   },
   passengerCard: {
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
+    padding: 16,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -820,140 +1119,50 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
-    color: '#333',
-  },
-  editText: {
-    color: '#007aff',
-    fontSize: 14,
+    color: '#1d1d1f',
+    marginBottom: 16,
   },
   passengerSection: {
-    marginBottom: 20,
-    padding: 15,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
+    marginBottom: 16,
   },
   passengerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   passengerTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#1d1d1f',
+  },
+  editText: {
+    fontSize: 14,
+    color: '#007aff',
   },
   passengerInfoContainer: {
-    marginTop: 5,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
   },
   passengerInfoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   passengerInfoLabel: {
+    fontSize: 14,
     color: '#666',
+    flex: 1,
   },
   passengerInfoValue: {
+    fontSize: 14,
     fontWeight: '500',
-    color: '#333',
-  },
-  paymentCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  paymentMethodsContainer: {
-    marginTop: 10,
-  },
-  paymentMethod: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 15,
-    borderWidth: 1,
-    borderColor: '#eee',
-    borderRadius: 8,
-    marginBottom: 10,
-    backgroundColor: '#fff',
-  },
-  paymentMethodText: {
-    flex: 1,
-    fontSize: 16,
-    marginLeft: 15,
-    color: '#333',
-  },
-  selectedPaymentMethod: {
-    borderColor: '#4CAF50',
-    backgroundColor: '#F0FFF0',
-  },
-  checkIcon: {
-    marginLeft: 10,
-  },
-  phoneInputContainer: {
-    marginTop: 15,
-  },
-  phoneInputLabel: {
-    marginBottom: 5,
-    color: '#666',
-  },
-  phoneInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: '#f9f9f9',
-  },
-  confirmButtonContainer: {
-    padding: 15,
-    backgroundColor: 'white',
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
-  confirmButton: {
-    backgroundColor: '#4169E1',
-    borderRadius: 8,
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  confirmButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  processingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    zIndex: 1000,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  processingContent: {
-    backgroundColor: 'white',
-    padding: 25,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  processingText: {
-    marginTop: 15,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  processingSubtext: {
-    marginTop: 5,
-    color: '#666',
+    color: '#1d1d1f',
+    flex: 2,
+    textAlign: 'right',
   },
   modalContainer: {
     flex: 1,
@@ -962,33 +1171,35 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalContent: {
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 20,
-    width: '90%',
+    width: width * 0.9,
     maxHeight: '80%',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
+    color: '#1d1d1f',
     marginBottom: 20,
     textAlign: 'center',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#e0e0e0',
     borderRadius: 8,
     padding: 12,
-    marginBottom: 15,
-    backgroundColor: '#f9f9f9',
+    fontSize: 16,
+    marginBottom: 12,
   },
   genderContainer: {
     marginBottom: 20,
   },
   genderLabel: {
     fontSize: 16,
-    marginBottom: 10,
-    color: '#333',
+    fontWeight: '500',
+    color: '#1d1d1f',
+    marginBottom: 8,
   },
   genderButtons: {
     flexDirection: 'row',
@@ -997,53 +1208,235 @@ const styles = StyleSheet.create({
   genderButton: {
     flex: 1,
     padding: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
     borderRadius: 8,
-    marginHorizontal: 5,
-    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginHorizontal: 4,
   },
   selectedGender: {
-    backgroundColor: '#4169E1',
-    borderColor: '#4169E1',
+    backgroundColor: '#007aff',
+    borderColor: '#007aff',
   },
   genderButtonText: {
-    color: '#333',
+    textAlign: 'center',
+    fontSize: 16,
+    color: '#666',
   },
   selectedGenderText: {
-    color: 'white',
+    color: '#fff',
   },
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 20,
   },
   modalButton: {
     flex: 1,
-    padding: 15,
+    padding: 12,
     borderRadius: 8,
-    marginHorizontal: 5,
+    marginHorizontal: 4,
   },
   cancelButton: {
-    backgroundColor: '#f8f9fa',
-    borderWidth: 1,
-    borderColor: '#ddd',
+    backgroundColor: '#f0f0f0',
   },
   saveButton: {
-    backgroundColor: '#4169E1',
+    backgroundColor: '#007aff',
   },
   cancelButtonText: {
-    color: '#333',
     textAlign: 'center',
-    fontWeight: '600',
+    fontSize: 16,
+    color: '#666',
   },
   saveButtonText: {
-    color: 'white',
     textAlign: 'center',
+    fontSize: 16,
+    color: '#fff',
     fontWeight: '600',
   },
+  paymentCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  paymentMethodsContainer: {
+    marginBottom: 16,
+  },
+  paymentMethod: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginBottom: 12,
+  },
+  selectedPaymentMethod: {
+    borderColor: '#007aff',
+    backgroundColor: '#f0f8ff',
+  },
+  paymentMethodLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  paymentMethodIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f8f9fa',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  paymentMethodName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1d1d1f',
+  },
+  paymentMethodDesc: {
+    fontSize: 12,
+    color: '#666',
+  },
+  radioButton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radioButtonInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#007aff',
+  },
+  phoneInputContainer: {
+    marginTop: 16,
+  },
+  phoneInputLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1d1d1f',
+    marginBottom: 8,
+  },
+  phoneInput: {
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+  },
+  summaryCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  summaryLabel: {
+    fontSize: 14,
+    color: '#666',
+    flex: 1,
+  },
+  summaryValue: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1d1d1f',
+    flex: 1,
+    textAlign: 'right',
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 12,
+  },
+  summaryLabelTotal: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1d1d1f',
+    flex: 1,
+  },
+  summaryValueTotal: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#007aff',
+    flex: 1,
+    textAlign: 'right',
+  },
+  bottomContainer: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  confirmButton: {
+    backgroundColor: '#007aff',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+  },
   disabledButton: {
-    opacity: 0.7,
+    backgroundColor: '#ccc',
+  },
+  confirmButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  processingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  processingContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 24,
+    alignItems: 'center',
+    minWidth: 200,
+  },
+  processingText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1d1d1f',
+    marginTop: 12,
+  },
+  processingSubtext: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  cancelPaymentButton: {
+    marginTop: 16,
+    padding: 8,
+  },
+  cancelPaymentText: {
+    fontSize: 14,
+    color: '#ff3b30',
   },
 });
 
